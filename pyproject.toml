@@ -1,0 +1,112 @@
+[project]
+name = "anda-erp-alpha"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "asyncpg>=0.30.0",
+    "faker>=40.13.0",
+    "fastapi>=0.115.12",
+    "loguru>=0.7.3",
+    "pydantic-settings>=2.9.1",
+    "pyjwt[crypto]>=2.12.1",
+    "redis>=5.0.0",
+    "sqlalchemy>=2.0.40",
+    "uvicorn>=0.34.0",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.15.11",
+]
+
+# ==============================================================================
+# Ruff 配置
+# 文档: https://docs.astral.sh/ruff/
+# ==============================================================================
+[tool.ruff]
+# 对应 requires-python，确保升级建议与运行时一致
+target-version = "py312"
+# 行宽：120 兼顾中文注释和 FastAPI 较长的函数签名
+line-length = 120
+# 不检查虚拟环境、缓存及自动生成文件
+exclude = [
+    ".venv",
+    "__pycache__",
+    "*.egg-info",
+    ".git",
+    ".mypy_cache",
+    ".ruff_cache",
+    "migrations",
+]
+
+# ------------------------------------------------------------------------------
+# Linter 规则
+# ------------------------------------------------------------------------------
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle — 语法/格式错误
+    "W",   # pycodestyle — 警告（如行尾空格）
+    "F",   # pyflakes   — 未使用导入、未定义变量等
+    "I",   # isort      — import 排序规范
+    "UP",  # pyupgrade  — Python 3.12 新写法升级提示
+    "B",   # bugbear    — 常见 Bug 模式
+    "C4",  # comprehensions — 列表/字典推导式最佳实践
+    "T20", # flake8-print   — 禁止 print()（规范：使用 log.*）
+    "TID", # tidy-imports   — 禁止导入指定模块（见下方 banned-api）
+    "RUF", # Ruff 原生规则  — 额外的 Python 最佳实践
+]
+ignore = [
+    # FastAPI 路由函数大量使用 Query(...) / Depends(...) 作为默认值，
+    # B008 会误报"不要在默认值处调用函数"，需整体忽略。
+    "B008",
+    # 行长度由 formatter 统一处理，lint 层不重复报告。
+    "E501",
+    # UP007: 允许使用 Optional[X] 而非 X | None，保持可读性。
+    "UP007",
+    # RUF001/RUF002/RUF003: 中文项目中全角标点（，。（）：）是正确写法，
+    # 这三条规则对中文字符串/注释/文档产生大量误报，整体关闭。
+    "RUF001",
+    "RUF002",
+    "RUF003",
+]
+
+# 按文件覆盖规则
+[tool.ruff.lint.per-file-ignores]
+# main.py 启动顺序有意为之（先初始化配置再导入模块），忽略 import 顺序相关规则
+"main.py" = ["E402", "I001"]
+# 日志基础设施模块本身合法使用 logging（配置 loguru sink / 引用日志级别常量），排除 TID251
+"app/core/log/*.py" = ["TID251"]
+"config/logger_config.py" = ["TID251"]
+
+# ------------------------------------------------------------------------------
+# isort：import 分组与排序
+# ------------------------------------------------------------------------------
+[tool.ruff.lint.isort]
+# 声明项目内部包，isort 会将其归为 first-party 单独分组
+known-first-party = ["app", "config"]
+# 每个分组之间保留一个空行
+force-sort-within-sections = false
+
+# ------------------------------------------------------------------------------
+# flake8-tidy-imports：禁止使用原生 logging 模块
+# 对应开发规范第 2 节：严禁使用原生 logging，必须使用 app.core.log
+# ------------------------------------------------------------------------------
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"logging".msg = "禁止直接使用原生 logging 模块，请改用项目统一日志：from app.core.log import log"
+"logging.getLogger".msg = "禁止直接使用原生 logging 模块，请改用项目统一日志：from app.core.log import log"
+
+# ------------------------------------------------------------------------------
+# Formatter（对标 Black 风格）
+# ------------------------------------------------------------------------------
+[tool.ruff.format]
+# 字符串统一使用双引号
+quote-style = "double"
+# 缩进使用空格
+indent-style = "space"
+# 行尾换行符自动适配（Windows/Unix 均可）
+line-ending = "auto"
+# 在 magic trailing comma 存在时保留多行展开
+skip-magic-trailing-comma = false
+
