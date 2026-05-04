@@ -1,4 +1,4 @@
-# anda-erp-alpha · FastAPI Template
+# FastAPI Template
 
 > 基于 **FastAPI + Python 3.12** 的后端项目模板，集成异步数据库、Redis 缓存、JWT 鉴权、统一响应/异常处理等常用基础设施，开箱即用。
 
