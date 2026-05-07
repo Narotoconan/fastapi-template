@@ -11,7 +11,12 @@ from app.core.cache.redis import get_redis_manager
 
 
 def cache(key_prefix: str = "", ttl: int | None = None) -> Callable:
-    """Async function result cache decorator with TTL support"""
+    """支持 TTL 的异步函数结果缓存装饰器。
+
+    使用 exists() 先行检查键是否存在，再取值，
+    正确区分「缓存未命中」与「命中但函数返回值为 None」两种情况，
+    避免返回 None 的函数每次均穿透缓存直接执行。
+    """
 
     def decorator(func: Callable) -> Callable:
         if not inspect.iscoroutinefunction(func):
@@ -22,9 +27,11 @@ def cache(key_prefix: str = "", ttl: int | None = None) -> Callable:
             cache_key = _generate_cache_key(func, key_prefix, args, kwargs)
             redis_manager = get_redis_manager()
 
-            cached = await redis_manager.get(cache_key)
-            if cached is not None:
-                return cached
+            # 先检查键是否存在，再取值：
+            # - exists == 0：缓存未命中，执行原函数并写入缓存
+            # - exists >= 1：缓存命中，直接返回（即便值本身是 None）
+            if await redis_manager.exists(cache_key):
+                return await redis_manager.get(cache_key)
 
             result = await func(*args, **kwargs)
             await redis_manager.set(cache_key, result, ex=ttl)

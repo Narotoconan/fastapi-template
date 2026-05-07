@@ -11,7 +11,8 @@ from fastapi import FastAPI
 
 from app.middlewares.cors import register_cors_middleware
 from app.middlewares.gzip import register_gzip_middleware
-from app.middlewares.jwt_auth import register_jwt_middleware
+
+# from app.middlewares.jwt_auth import register_jwt_middleware
 
 
 def register_middlewares(app: FastAPI) -> None:

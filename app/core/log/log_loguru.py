@@ -1,12 +1,15 @@
+from __future__ import annotations
+
 import logging
 import sys
 
+import loguru
 from loguru import logger
 
 from config.settings import get_settings
 
 
-def register() -> logging.Logger:
+def register() -> loguru.Logger:
     settings = get_settings()
     level = settings.logger.LOG_LEVEL
     path = f"{settings.app.BASE_PATH}/logs"

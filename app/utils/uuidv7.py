@@ -2,7 +2,6 @@ import datetime
 import secrets
 import time
 import uuid
-from typing import Union
 
 
 class UUIDv7:
@@ -149,7 +148,7 @@ class UUIDv7:
         return UUIDv7.generate(timestamp_ms)
 
     @staticmethod
-    def get_timestamp(uuid_v7: Union[uuid.UUID, str]) -> datetime.datetime:
+    def get_timestamp(uuid_v7: uuid.UUID | str) -> datetime.datetime:
         """
         从UUID v7中提取时间戳。
 
@@ -199,9 +198,9 @@ class UUIDv7:
             必须在调用生成方法前调用此方法。
             该方法需要threading模块支持。
         """
-        import threading
+        import asyncio
 
-        UUIDv7._mutex_lock = threading.Lock()
+        UUIDv7._mutex_lock = asyncio.Lock()
 
 
 __all__ = ["UUIDv7"]

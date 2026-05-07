@@ -1,4 +1,3 @@
-from app.dependencies.pagination import PageParams
 from app.schemas.base_schema import BaseSchema
 from app.schemas.response import (
     PageInfo,
@@ -10,7 +9,6 @@ from app.schemas.response import (
 __all__ = [
     "BaseSchema",
     "PageInfo",
-    "PageParams",
     "PageResponseSchema",
     "PageResult",
     "ResponseSchema",

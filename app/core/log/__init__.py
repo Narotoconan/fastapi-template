@@ -1,5 +1,8 @@
-from logging import Logger
+from __future__ import annotations
+
 from typing import Any
+
+import loguru
 
 from .log_loguru import register
 
@@ -12,9 +15,9 @@ class _LazyLogger:
     """
 
     def __init__(self) -> None:
-        self._logger: Logger | None = None
+        self._logger: loguru.Logger | None = None
 
-    def _get(self) -> Logger:
+    def _get(self) -> loguru.Logger:
         """获取真实 logger，未初始化时抛出 RuntimeError。"""
         if self._logger is None:
             raise RuntimeError("日志未初始化，请先在应用启动时调用 register_log()")

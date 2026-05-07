@@ -324,11 +324,14 @@ class RedisManager:
             serialized_data = {self._get_prefixed_key(k): self._serialize(v) for k, v in data.items()}
             result = await _await_redis_response(client.mset(serialized_data))
 
-            # 如果设置了过期时间，为所有键设置过期
+            # 如果设置了过期时间，使用 pipeline 批量发送 expire 命令，避免 N 次网络往返
             if ex is not None:
-                prefixed_keys = [self._get_prefixed_key(k) for k in data.keys()]
-                for key in prefixed_keys:
-                    await _await_redis_response(client.expire(key, ex))
+                async with client.pipeline(transaction=False) as pipe:
+                    for prefixed_key in serialized_data:
+                        # await 将命令入队到 pipeline 本地缓冲区，不会立即发送网络请求
+                        # 真正的批量发送发生在 pipe.execute() 时
+                        await pipe.expire(prefixed_key, ex)
+                    await pipe.execute()
 
             return result
         except Exception as e:
@@ -623,17 +626,13 @@ class RedisManager:
 
 
 # 全局单例
-_redis_manager: RedisManager | None = None
-
-
 def get_redis_manager() -> RedisManager:
-    """获取 Redis 管理器单例"""
-    global _redis_manager
-    manager = _redis_manager
-    if manager is None:
-        manager = RedisManager()
-        _redis_manager = manager
-    return manager
+    """获取 Redis 管理器单例。
+
+    RedisManager.__new__ 已通过类变量 _instance 保证全局唯一实例，
+    此处直接调用构造函数即可，无需在模块层再维护额外的全局变量。
+    """
+    return RedisManager()
 
 
 __all__ = ["RedisManager", "get_redis_manager"]

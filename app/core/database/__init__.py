@@ -17,7 +17,12 @@ AsyncSessionLocal = _pgsql.AsyncSessionLocal
 Base = _pgsql.Base
 
 
-def db_first_connection():
+def db_first_connection() -> None:
+    """记录数据库启动日志。
+
+    注意：此函数仅做日志输出，不发送实际查询验证连接可用性。
+    真正的连接在首次执行 SQL 时由 SQLAlchemy 连接池建立。
+    """
     log.info("✅ 数据库 连接成功")
 
 

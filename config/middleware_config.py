@@ -11,10 +11,12 @@ from pydantic_settings import BaseSettings
 class CORSSettings(BaseSettings):
     """CORS 跨域中间件配置"""
 
-    # 允许的来源列表，生产环境应替换为具体域名
+    # 允许的来源列表，生产环境应替换为具体域名，例如 ["https://example.com"]
     CORS_ALLOW_ORIGINS: list[str] = ["*"]
     # 是否允许携带 Cookie/Authorization 等凭据
-    CORS_ALLOW_CREDENTIALS: bool = True
+    # ⚠️ 注意：allow_credentials=True 与 allow_origins=["*"] 互斥！
+    # 启用 credentials 时必须将 CORS_ALLOW_ORIGINS 设为具体域名列表，不可使用通配符 "*"
+    CORS_ALLOW_CREDENTIALS: bool = False
     # 允许的 HTTP 方法
     CORS_ALLOW_METHODS: list[str] = ["*"]
     # 允许的请求头

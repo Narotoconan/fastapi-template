@@ -14,6 +14,16 @@ from app.core.log import log
 from app.exceptions.errors import BizException, ErrorCode
 from app.exceptions.validation_i18n import translate_validation_error
 
+# 映射常见 HTTP 状态码到业务错误码
+_STATUS_CODE_MAP: dict[int, int] = {
+    401: ErrorCode.UNAUTHORIZED,
+    403: ErrorCode.FORBIDDEN,
+    404: ErrorCode.NOT_FOUND,
+    405: ErrorCode.PARAMS_INVALID,
+    422: ErrorCode.PARAMS_INVALID,
+    429: ErrorCode.FAIL,
+}
+
 
 def build_error_response(
     *,
@@ -45,12 +55,7 @@ def build_error_response(
 async def biz_exception_handler(_request: Request, exc: Exception) -> JSONResponse:
     """业务异常处理"""
     _exc = cast(BizException, exc)
-    log.warning(
-        "BizException | code={} message={} path={}",
-        _exc.code,
-        _exc.message,
-        _request.url.path,
-    )
+    log.warning(f"BizException | code={_exc.code} message={_exc.message} path={_request.url.path}")
     return build_error_response(
         http_status=_exc.http_status,
         code=_exc.code,
@@ -87,23 +92,10 @@ async def http_exception_handler(_request: Request, exc: Exception) -> JSONRespo
     将框架原生的 HTTP 异常也转换为统一格式
     """
     _exc = cast(StarletteHTTPException, exc)
-    # 映射常见 HTTP 状态码到业务错误码
-    _STATUS_CODE_MAP: dict[int, int] = {
-        401: ErrorCode.UNAUTHORIZED,
-        403: ErrorCode.FORBIDDEN,
-        404: ErrorCode.NOT_FOUND,
-        405: ErrorCode.PARAMS_INVALID,
-        422: ErrorCode.PARAMS_INVALID,
-        429: ErrorCode.FAIL,
-    }
+
     code = _STATUS_CODE_MAP.get(_exc.status_code, ErrorCode.FAIL)
 
-    log.warning(
-        "HTTPException | status={} detail={} path={}",
-        _exc.status_code,
-        _exc.detail,
-        _request.url.path,
-    )
+    log.warning(f"HTTPException | status={_exc.status_code} detail={_exc.detail} path={_request.url.path}")
     return build_error_response(
         http_status=_exc.status_code,
         code=code,
@@ -116,11 +108,7 @@ async def unhandled_exception_handler(_request: Request, exc: Exception) -> JSON
     兜底: 未被捕获的异常
     生产环境隐藏堆栈，仅记录日志
     """
-    log.exception(
-        "UnhandledException | path={} error={}",
-        _request.url.path,
-        str(exc),
-    )
+    log.exception(f"UnhandledException | path={_request.url.path} error={exc!s}")
     return build_error_response(
         http_status=status.HTTP_500_INTERNAL_SERVER_ERROR,
         code=ErrorCode.INTERNAL_ERROR,

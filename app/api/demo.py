@@ -5,12 +5,12 @@ from faker import Faker
 from fastapi import APIRouter, Query
 from fastapi.responses import StreamingResponse
 
-from app.core.log import log
 from app.core.cache import RedisPrefixes, get_redis_manager
+from app.core.log import log
+from app.dependencies.pagination import PageDep
 from app.exceptions import BizException, ErrorCode, NotFoundException
 from app.schemas.response import PageResponseSchema, ResponseSchema
 from app.schemas.user_schema import UserSearch
-from app.dependencies.pagination import PageDep
 
 router_demo = APIRouter(prefix="/demo", tags=["demo演示"])
 fake = Faker("zh_CN")

@@ -62,9 +62,9 @@ class AsyncPgSql:
     def db_first_connection():
         log.info(
             f"✅ 数据库 连接成功 - "
-            f"主机:{settings.cache.REDIS_HOST} | "
-            f"端口:{settings.cache.REDIS_PORT} | "
-            f"数据库:{settings.cache.REDIS_DB}"
+            f"主机:{settings.database.DB_HOST} | "
+            f"端口:{settings.database.DB_PORT} | "
+            f"数据库:{settings.database.DB_DATABASE}"
         )
 
     async def disconnect(self) -> None:

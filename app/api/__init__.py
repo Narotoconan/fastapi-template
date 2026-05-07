@@ -3,7 +3,7 @@ from fastapi import APIRouter, FastAPI
 from app.api.demo import router_demo
 
 
-def register_router(app: FastAPI):
+def register_router(app: FastAPI) -> None:
     router = APIRouter()
     router.include_router(router_demo)
 
