@@ -2,11 +2,12 @@ import io
 from typing import Annotated
 
 from faker import Faker
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 from fastapi.responses import StreamingResponse
 
 from app.core.cache import RedisPrefixes, get_redis_manager
 from app.core.log import log
+from app.core.rate_limit import rate_limit
 from app.dependencies.pagination import PageDep
 from app.exceptions import BizException, ErrorCode, NotFoundException
 from app.schemas.response import PageResponseSchema, ResponseSchema
@@ -17,9 +18,11 @@ fake = Faker("zh_CN")
 
 
 @router_demo.get("/list", summary="用户列表(分页)")
+@rate_limit('3/minute')
 async def get_user_list_api(
-        pagination: PageDep
-):
+    request: Request,
+    pagination: PageDep,
+) -> PageResponseSchema:
     """分页查询用户列表 — 演示分页响应"""
     # 模拟数据
     total = 56

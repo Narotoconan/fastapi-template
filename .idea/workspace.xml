@@ -1,8 +1,16 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="ChangeListManager">
-    <list default="true" id="0df6f5e4-8a14-42be-b433-e1db0729378a" name="Changes" comment="Refactor database connection handling to use async; improve logging on connection success">
-      <change afterPath="$PROJECT_DIR$/AGENTS.md" afterDir="false" />
+    <list default="true" id="0df6f5e4-8a14-42be-b433-e1db0729378a" name="Changes" comment="新增 AGENTS.md 文件，提供 Codex 在 FastAPI 项目中的工作原则与开发规范">
+      <change beforePath="$PROJECT_DIR$/.env.example" beforeDir="false" afterPath="$PROJECT_DIR$/.env.example" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.gitignore" beforeDir="false" afterPath="$PROJECT_DIR$/.gitignore" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/api/demo.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/api/demo.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/config/settings.py" beforeDir="false" afterPath="$PROJECT_DIR$/config/settings.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/main.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/pyproject.toml" beforeDir="false" afterPath="$PROJECT_DIR$/pyproject.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/uv.lock" beforeDir="false" afterPath="$PROJECT_DIR$/uv.lock" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -126,7 +134,7 @@
       <workItem from="1779810623867" duration="30000" />
       <workItem from="1779812658498" duration="9000" />
       <workItem from="1781457278872" duration="31000" />
-      <workItem from="1781531680504" duration="771000" />
+      <workItem from="1781531680504" duration="3107000" />
     </task>
     <task id="LOCAL-00001" summary="Refactor code for improved type hints and logging; update middleware and database connection handling">
       <option name="closed" value="true" />
@@ -144,7 +152,15 @@
       <option name="project" value="LOCAL" />
       <updated>1778252962206</updated>
     </task>
-    <option name="localTasksCounter" value="3" />
+    <task id="LOCAL-00003" summary="新增 AGENTS.md 文件，提供 Codex 在 FastAPI 项目中的工作原则与开发规范">
+      <option name="closed" value="true" />
+      <created>1781532471838</created>
+      <option name="number" value="00003" />
+      <option name="presentableId" value="LOCAL-00003" />
+      <option name="project" value="LOCAL" />
+      <updated>1781532471838</updated>
+    </task>
+    <option name="localTasksCounter" value="4" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -164,10 +180,11 @@
   <component name="VcsManagerConfiguration">
     <MESSAGE value="Refactor code for improved type hints and logging; update middleware and database connection handling" />
     <MESSAGE value="Refactor database connection handling to use async; improve logging on connection success" />
-    <option name="LAST_COMMIT_MESSAGE" value="Refactor database connection handling to use async; improve logging on connection success" />
+    <MESSAGE value="新增 AGENTS.md 文件，提供 Codex 在 FastAPI 项目中的工作原则与开发规范" />
+    <option name="LAST_COMMIT_MESSAGE" value="新增 AGENTS.md 文件，提供 Codex 在 FastAPI 项目中的工作原则与开发规范" />
   </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
-    <SUITE FILE_PATH="coverage/fastapi_template$template_dev.coverage" NAME="template:dev Coverage Results" MODIFIED="1778252792363" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="" />
+    <SUITE FILE_PATH="coverage/fastapi_template$template_dev.coverage" NAME="template:dev Coverage Results" MODIFIED="1781535016235" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>

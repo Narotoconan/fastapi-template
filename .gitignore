@@ -5,3 +5,10 @@ storage/logs/*
 .env.dev
 .env.prod
 logs/*
+__pycache__/
+.pytest_cache/
+.coverage
+htmlcov/
+.idea/
+*.pyc
+*.log

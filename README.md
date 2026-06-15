@@ -15,6 +15,7 @@
   - [异常处理](#异常处理)
   - [JWT 鉴权](#jwt-鉴权)
   - [Redis 缓存](#redis-缓存)
+  - [接口速率限制](#接口速率限制)
   - [数据库](#数据库)
   - [日志系统](#日志系统)
   - [分页依赖](#分页依赖)
@@ -34,6 +35,7 @@
 | ORM | SQLAlchemy 2.0（全异步） |
 | 数据库驱动 | asyncpg（PostgreSQL） |
 | 缓存 | Redis 5.0+（异步） |
+| 接口限流 | SlowAPI + Redis |
 | 鉴权 | PyJWT（HS256） |
 | 配置管理 | Pydantic-Settings（支持 `.env`） |
 | 日志 | Loguru |
@@ -54,6 +56,7 @@ anda-erp-alpha/
 │   │   ├── cache/             # Redis 异步缓存模块
 │   │   ├── database/          # PostgreSQL 异步引擎（SQLAlchemy 2.0）
 │   │   ├── events/            # 生命周期钩子（startup / shutdown）
+│   │   ├── rate_limit.py      # SlowAPI Redis 接口限流
 │   │   └── log/               # Loguru 封装
 │   ├── dependencies/          # FastAPI 依赖注入（分页、DB Session 等）
 │   ├── exceptions/            # 自定义异常类 & 全局异常处理器
@@ -70,7 +73,8 @@ anda-erp-alpha/
     ├── cache_config.py        # Redis 配置
     ├── database_config.py     # 数据库配置
     ├── logger_config.py       # 日志配置
-    └── middleware_config.py   # CORS / GZip / JWT 配置
+    ├── middleware_config.py   # CORS / GZip / JWT 配置
+    └── rate_limit_config.py   # 接口速率限制配置
 ```
 
 ---
@@ -103,6 +107,10 @@ DB_NAME=anda_erp
 REDIS_HOST=localhost
 REDIS_PORT=6379
 REDIS_PASSWORD=
+
+# 接口速率限制（默认关闭）
+RATE_LIMIT_ENABLED=false
+RATE_LIMIT_DEFAULT=100/minute
 
 # JWT（生产环境必须替换！）
 JWT_SECRET_KEY=change-me-in-production-use-env-var
@@ -147,6 +155,13 @@ uv run uvicorn main:app --reload
 | `REDIS_MAX_CONNECTIONS` | `10` | 连接池最大连接数 |
 | `REDIS_TIMEOUT` | `5` | 连接超时（秒） |
 | `REDIS_PREFIX` | `anda_erp` | 项目级键前缀，多项目共享 Redis 实例时用于数据隔离 |
+
+### 接口速率限制
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `RATE_LIMIT_ENABLED` | `false` | 是否启用显式声明的接口限流 |
+| `RATE_LIMIT_DEFAULT` | `100/minute` | `@rate_limit()` 未传入额度时使用的默认值 |
 
 ### JWT 鉴权
 
@@ -316,6 +331,37 @@ await redis.hset(f"{RedisPrefixes.USER_PROFILE}:{user_id}", data, ex=120)
 ```
 
 > 详见 [`app/core/cache/README.md`](app/core/cache/README.md)
+
+---
+
+### 接口速率限制
+
+接口限流默认关闭，仅对显式添加 `@rate_limit()` 的接口生效。限流按客户端 IP 和接口分别计数，
+使用独立的 SlowAPI Redis 连接；Redis 故障时记录错误并放行请求。
+
+```python
+from fastapi import APIRouter, Request
+
+from app.core.rate_limit import rate_limit
+
+router = APIRouter()
+
+
+@router.get("/orders")
+@rate_limit()
+async def get_orders(request: Request):
+    """使用 RATE_LIMIT_DEFAULT 配置的额度。"""
+    ...
+
+
+@router.post("/orders")
+@rate_limit("10/minute")
+async def create_order(request: Request):
+    """为单个接口指定额度。"""
+    ...
+```
+
+> SlowAPI 要求路由装饰器位于 `@rate_limit()` 上方，且被限流的接口必须显式接收名为 `request` 的 `Request` 参数。
 
 ---
 

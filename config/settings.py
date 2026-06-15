@@ -8,6 +8,7 @@ from .cache_config import CacheSettings
 from .database_config import DatabaseSettings
 from .logger_config import LoggerSettings
 from .middleware_config import CORSSettings, GZipSettings, JWTSettings
+from .rate_limit_config import RateLimitSettings
 
 
 class Settings(BaseSettings):
@@ -18,6 +19,7 @@ class Settings(BaseSettings):
     cors: CORSSettings = Field(default_factory=CORSSettings)
     gzip: GZipSettings = Field(default_factory=GZipSettings)
     jwt: JWTSettings = Field(default_factory=JWTSettings)
+    rate_limit: RateLimitSettings = Field(default_factory=RateLimitSettings)
 
 
 @lru_cache
