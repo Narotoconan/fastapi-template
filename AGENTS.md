@@ -13,7 +13,9 @@
 * 项目配置位于 `config/`。
 * 应用主体位于 `app/`。
 * 业务逻辑优先放在 `app/services/`。
+* 数据库操作位于 `app/repositories/`。
 * 日志、异常等核心基础能力位于 `app/core/`。
+* 项目总体分三层：路由层（router）、服务层（service）、数据访问层（repository）。
 
 ## Codex 工作原则
 * 修改前先阅读相关代码、配置、调用链和测试，不要只根据文件名猜测实现。
@@ -63,6 +65,10 @@
 * Python 3.12 代码优先使用现代类型写法，例如 `list[str]`、`dict[str, Any]`。
 * 使用 `collections.abc.Callable`，不要使用 `typing.Callable`。
 * import 必须分组排序：标准库、第三方库、项目内部包。
+
+## Git Commit 规范
+- 生成 git commit 提交信息时，优先使用中文描述变更内容。
+- 如使用约定式提交格式，`feat`、`fix`、`refactor`、`docs`、`test`、`chore` 等类型前缀可以保留英文，但提交标题和正文说明应优先使用中文。
 
 ## Ruff 规范
 项目使用 Ruff 进行 Lint 与格式化，配置位于 `pyproject.toml`。
