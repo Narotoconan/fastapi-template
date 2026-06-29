@@ -1,5 +1,5 @@
 [project]
-name = "anda-erp-alpha"
+name = "fastapi-template"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
@@ -59,18 +59,14 @@ select = [
     "UP",  # pyupgrade  — Python 3.12 新写法升级提示
     "B",   # bugbear    — 常见 Bug 模式
     "C4",  # comprehensions — 列表/字典推导式最佳实践
+    "ASYNC", # flake8-async — 异步函数中阻塞调用检查
     "T20", # flake8-print   — 禁止 print()（规范：使用 log.*）
     "TID", # tidy-imports   — 禁止导入指定模块（见下方 banned-api）
     "RUF", # Ruff 原生规则  — 额外的 Python 最佳实践
 ]
 ignore = [
-    # FastAPI 路由函数大量使用 Query(...) / Depends(...) 作为默认值，
-    # B008 会误报"不要在默认值处调用函数"，需整体忽略。
-    "B008",
     # 行长度由 formatter 统一处理，lint 层不重复报告。
     "E501",
-    # UP007: 允许使用 Optional[X] 而非 X | None，保持可读性。
-    "UP007",
     # RUF001/RUF002/RUF003: 中文项目中全角标点（，。（）：）是正确写法，
     # 这三条规则对中文字符串/注释/文档产生大量误报，整体关闭。
     "RUF001",
@@ -96,12 +92,29 @@ known-first-party = ["app", "config"]
 force-sort-within-sections = false
 
 # ------------------------------------------------------------------------------
+# flake8-bugbear：默认参数函数调用检查
+# ------------------------------------------------------------------------------
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI 参数构造器用于声明接口参数元数据，允许作为路由默认值使用。
+extend-immutable-calls = [
+    "fastapi.Depends",
+    "fastapi.Query",
+    "fastapi.Path",
+    "fastapi.Body",
+    "fastapi.Header",
+    "fastapi.Cookie",
+    "fastapi.Form",
+    "fastapi.File",
+]
+
+# ------------------------------------------------------------------------------
 # flake8-tidy-imports：禁止使用原生 logging 模块
 # 对应开发规范第 2 节：严禁使用原生 logging，必须使用 app.core.log
 # ------------------------------------------------------------------------------
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
 "logging".msg = "禁止直接使用原生 logging 模块，请改用项目统一日志：from app.core.log import log"
 "logging.getLogger".msg = "禁止直接使用原生 logging 模块，请改用项目统一日志：from app.core.log import log"
+"app.core.log.log.exception".msg = "禁止使用 log.exception()，请使用规范允许的 log.error()/log.warning()/log.info()/log.debug()"
 
 # ------------------------------------------------------------------------------
 # Formatter（对标 Black 风格）

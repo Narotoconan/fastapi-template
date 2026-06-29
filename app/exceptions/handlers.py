@@ -106,9 +106,9 @@ async def http_exception_handler(_request: Request, exc: Exception) -> JSONRespo
 async def unhandled_exception_handler(_request: Request, exc: Exception) -> JSONResponse:
     """
     兜底: 未被捕获的异常
-    生产环境隐藏堆栈，仅记录日志
+    生产环境隐藏堆栈，仅记录必要错误上下文
     """
-    log.exception(f"UnhandledException | path={_request.url.path} error={exc!s}")
+    log.error(f"UnhandledException | path={_request.url.path} error_type={type(exc).__name__} error={exc!s}")
     return build_error_response(
         http_status=status.HTTP_500_INTERNAL_SERVER_ERROR,
         code=ErrorCode.INTERNAL_ERROR,

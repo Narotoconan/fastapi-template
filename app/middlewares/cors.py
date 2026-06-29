@@ -36,4 +36,3 @@ def register_cors_middleware(app: FastAPI) -> None:
 
 
 __all__ = ["register_cors_middleware"]
-

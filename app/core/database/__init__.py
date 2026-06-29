@@ -1,3 +1,5 @@
+from sqlalchemy import text
+
 from app.core.log import log
 from config.settings import get_settings
 
@@ -18,7 +20,6 @@ Base = _pgsql.Base
 
 
 async def db_first_connection() -> None:
-    from sqlalchemy import text
     """记录数据库启动日志。
 
     注意：此函数仅做日志输出，不发送实际查询验证连接可用性。
@@ -31,7 +32,8 @@ async def db_first_connection() -> None:
     log.info("✅ 数据库 连接成功")
 
 
-async def db_disconnect():
+async def db_disconnect() -> None:
+    """关闭数据库连接。"""
     await _pgsql.disconnect()
     log.info("✅ 数据库 已断开连接")
 

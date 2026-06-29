@@ -18,7 +18,7 @@ fake = Faker("zh_CN")
 
 
 @router_demo.get("/list", summary="用户列表(分页)")
-@rate_limit('3/minute')
+@rate_limit("3/minute")
 async def get_user_list_api(
     request: Request,
     pagination: PageDep,

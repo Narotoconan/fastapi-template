@@ -98,7 +98,7 @@ uv run ruff check .
 * 如果测试依赖数据库、Redis、外部服务或本地环境而无法运行，应在回复中说明原因和风险。
 
 ## Git Commit 规范
-- 生成 git commit 提交信息时，优先使用中文描述变更内容。
+- 生成 git commit 提交信息时，message优先使用中文描述变更内容。
 - 如使用约定式提交格式，`feat`、`fix`、`refactor`、`docs`、`test`、`chore` 等类型前缀可以保留英文，但提交标题和正文说明应优先使用中文。
 
 ## 禁止事项

@@ -23,9 +23,8 @@ def register_gzip_middleware(app: FastAPI) -> None:
     """
     gzip = get_settings().gzip
 
-    app.add_middleware(GZipMiddleware, minimum_size=gzip.GZIP_MINIMUM_SIZE) # type: ignore[arg-type]
+    app.add_middleware(GZipMiddleware, minimum_size=gzip.GZIP_MINIMUM_SIZE)  # type: ignore[arg-type]
     log.info(f"🧩 GZip 中间件已注册 | minimum_size={gzip.GZIP_MINIMUM_SIZE} bytes")
 
 
 __all__ = ["register_gzip_middleware"]
-

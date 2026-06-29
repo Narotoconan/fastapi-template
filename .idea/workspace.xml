@@ -4,12 +4,17 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="0df6f5e4-8a14-42be-b433-e1db0729378a" name="Changes" comment="新增 AGENTS.md 文件，提供 Codex 在 FastAPI 项目中的工作原则与开发规范">
-      <change beforePath="$PROJECT_DIR$/.github/copilot-instructions.md" beforeDir="false" afterPath="$PROJECT_DIR$/.github/copilot-instructions.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/fastapi-template.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/fastapi-template.iml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/material_theme_project_new.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/material_theme_project_new.xml" afterDir="false" />
+    <list default="true" id="0df6f5e4-8a14-42be-b433-e1db0729378a" name="Changes" comment="docs: 更新 AGENTS.md 和 copilot-instructions.md，补充项目结构、工作原则及 Git 提交规范">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/AGENTS.md" beforeDir="false" afterPath="$PROJECT_DIR$/AGENTS.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/api/demo.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/api/demo.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/core/database/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/core/database/__init__.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/exceptions/handlers.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/exceptions/handlers.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/middlewares/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/middlewares/__init__.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/middlewares/cors.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/middlewares/cors.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/middlewares/gzip.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/middlewares/gzip.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/middlewares/jwt_auth.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/middlewares/jwt_auth.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/repositories/base_repo.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/repositories/base_repo.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/pyproject.toml" beforeDir="false" afterPath="$PROJECT_DIR$/pyproject.toml" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -149,7 +154,7 @@
       <workItem from="1781531680504" duration="3107000" />
       <workItem from="1782227608867" duration="104000" />
       <workItem from="1782227729081" duration="355000" />
-      <workItem from="1782745938019" duration="192000" />
+      <workItem from="1782745938019" duration="1988000" />
     </task>
     <task id="LOCAL-00001" summary="Refactor code for improved type hints and logging; update middleware and database connection handling">
       <option name="closed" value="true" />
@@ -175,7 +180,15 @@
       <option name="project" value="LOCAL" />
       <updated>1781532471838</updated>
     </task>
-    <option name="localTasksCounter" value="4" />
+    <task id="LOCAL-00004" summary="docs: 更新 AGENTS.md 和 copilot-instructions.md，补充项目结构、工作原则及 Git 提交规范">
+      <option name="closed" value="true" />
+      <created>1782746152949</created>
+      <option name="number" value="00004" />
+      <option name="presentableId" value="LOCAL-00004" />
+      <option name="project" value="LOCAL" />
+      <updated>1782746152949</updated>
+    </task>
+    <option name="localTasksCounter" value="5" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -196,7 +209,8 @@
     <MESSAGE value="Refactor code for improved type hints and logging; update middleware and database connection handling" />
     <MESSAGE value="Refactor database connection handling to use async; improve logging on connection success" />
     <MESSAGE value="新增 AGENTS.md 文件，提供 Codex 在 FastAPI 项目中的工作原则与开发规范" />
-    <option name="LAST_COMMIT_MESSAGE" value="新增 AGENTS.md 文件，提供 Codex 在 FastAPI 项目中的工作原则与开发规范" />
+    <MESSAGE value="docs: 更新 AGENTS.md 和 copilot-instructions.md，补充项目结构、工作原则及 Git 提交规范" />
+    <option name="LAST_COMMIT_MESSAGE" value="docs: 更新 AGENTS.md 和 copilot-instructions.md，补充项目结构、工作原则及 Git 提交规范" />
   </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
     <SUITE FILE_PATH="coverage/fastapi_template$template_dev.coverage" NAME="template:dev Coverage Results" MODIFIED="1781535016235" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="" />

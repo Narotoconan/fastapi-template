@@ -1,10 +1,10 @@
-from typing import ClassVar, Union
+from typing import ClassVar
 
 from sqlalchemy.orm import Query
 from sqlalchemy.sql import Delete, Insert, Select, Update
 from sqlalchemy.sql.compiler import SQLCompiler
 
-SQL = Union[Select, Update, Insert, Delete]
+SQL = Select | Update | Insert | Delete
 
 
 class BaseRepository:
@@ -17,7 +17,7 @@ class BaseRepository:
         return cls._instances[cls]
 
     @staticmethod
-    def sql_compile(sql: Union[Query, SQL]) -> SQLCompiler:
+    def sql_compile(sql: Query | SQL) -> SQLCompiler:
         _ = None
 
         if isinstance(sql, Query):

@@ -110,7 +110,7 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
         authorization: str = request.headers.get("Authorization", "")
         if not authorization.startswith("Bearer "):
             return None
-        return authorization[len("Bearer "):]
+        return authorization[len("Bearer ") :]
 
 
 def register_jwt_middleware(app: FastAPI) -> None:
@@ -122,8 +122,9 @@ def register_jwt_middleware(app: FastAPI) -> None:
     """
     jwt_settings = get_settings().jwt
     app.add_middleware(JWTAuthMiddleware)
-    log.info(f"🧩 JWT 鉴权中间件已注册 | algorithm={jwt_settings.JWT_ALGORITHM} public_paths={jwt_settings.JWT_PUBLIC_PATHS}")
+    log.info(
+        f"🧩 JWT 鉴权中间件已注册 | algorithm={jwt_settings.JWT_ALGORITHM} public_paths={jwt_settings.JWT_PUBLIC_PATHS}"
+    )
 
 
 __all__ = ["JWTAuthMiddleware", "register_jwt_middleware"]
-

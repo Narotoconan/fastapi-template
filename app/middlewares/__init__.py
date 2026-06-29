@@ -31,4 +31,3 @@ def register_middlewares(app: FastAPI) -> None:
 
 
 __all__ = ["register_middlewares"]
-
