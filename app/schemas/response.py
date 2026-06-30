@@ -12,13 +12,14 @@
     return PageResponseSchema.ok(items=user_list, total=100, page=1, page_size=10)
 
     # 错误响应(通常由异常处理器自动构建，无需手动使用)
-    return ResponseSchema.fail(message="参数错误", code=-1)
+    return ResponseSchema.fail(message="参数错误", code=ErrorCode.FAIL)
 """
 
 from typing import Any
 
 from pydantic import Field
 
+from app.exceptions.errors import ErrorCode
 from app.schemas.base_schema import BaseSchema
 
 # ==================== 基础响应模型 ====================
@@ -37,7 +38,7 @@ class ResponseSchema(BaseSchema):
         return cls(code=0, message=message, result=data if data is not None else {})
 
     @classmethod
-    def fail(cls, *, message: str = "error", code: int = -1, result: Any = None) -> "ResponseSchema":
+    def fail(cls, *, message: str = "error", code: int = ErrorCode.FAIL, result: Any = None) -> "ResponseSchema":
         """构建失败响应"""
         return cls(code=code, message=message, result=result if result is not None else {})
 

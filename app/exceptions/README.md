@@ -12,7 +12,7 @@ from app.exceptions import BizException, NotFoundException, AuthException, Forbi
 
 | 异常类 | HTTP 状态码 | 业务错误码 | 适用场景 |
 |---|---|---|---|
-| `BizException` | 自定义(默认200) | 自定义(默认-1) | 通用业务异常基类 |
+| `BizException` | 自定义(默认200) | 自定义(默认99999) | 通用业务异常基类 |
 | `AuthException` | 401 | 1001 | 未登录 / Token 失效 |
 | `ForbiddenException` | 403 | 1002 | 权限不足 |
 | `NotFoundException` | 404 | 3001 | 资源不存在 |
@@ -52,7 +52,7 @@ raise AuthException(message="请先登录")
 
 # 无权限
 raise ForbiddenException(message="仅管理员可操作")
-# → HTTP 403, code=1004
+# → HTTP 403, code=1002
 ```
 
 ---
@@ -95,7 +95,7 @@ FastAPI 的参数校验错误会被全局处理器自动拦截，响应格式如
 ```python
 class ErrorCode(IntEnum):
     SUCCESS        = 0      # 成功
-    FAIL           = -1     # 通用失败
+    FAIL           = 99999  # 通用失败兜底
 
     # 认证/授权 1xxx（前端需差异化跳转）
     UNAUTHORIZED   = 1001   # 未登录或 Token 失效 → 跳转登录页
