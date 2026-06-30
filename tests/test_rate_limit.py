@@ -6,8 +6,8 @@ from fastapi.testclient import TestClient
 from limits.storage import MemoryStorage
 from limits.strategies import FixedWindowRateLimiter
 
-from app.core import rate_limit as rate_limit_module
 from app.core.rate_limit import rate_limit
+from app.core.rate_limit import rate_limiter as rate_limit_module
 from config.cache_config import CacheSettings
 from config.settings import get_settings
 

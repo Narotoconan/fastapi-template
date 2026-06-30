@@ -57,7 +57,7 @@ anda-erp-alpha/
 │   │   ├── cache/             # Redis 异步缓存模块
 │   │   ├── database/          # PostgreSQL 异步引擎（SQLAlchemy 2.0）
 │   │   ├── events/            # 生命周期钩子（startup / shutdown）
-│   │   ├── rate_limit.py      # SlowAPI Redis 接口限流
+│   │   ├── rate_limit/        # SlowAPI Redis 接口限流
 │   │   └── log/               # Loguru 封装
 │   ├── dependencies/          # FastAPI 依赖注入（分页、DB Session 等）
 │   ├── exceptions/            # 自定义异常类 & 全局异常处理器
