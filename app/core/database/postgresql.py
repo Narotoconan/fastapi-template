@@ -23,19 +23,16 @@ class Base(DeclarativeBase):
 
 
 class AsyncPgSql:
-    def __init__(self, host: str, port: int, user: str, password: str, database: str):
+    def __init__(self, host: str, port: int, user: str, password: str, database: str) -> None:
         self.__DATABASE_URL = f"postgresql+asyncpg://{user}:{password}@{host}:{port}/{database}"
 
-        self.__engine: AsyncEngine | None = None
-        self.AsyncSessionLocal: async_scoped_session[AsyncSession] | None = None
+        self.__engine: AsyncEngine = self.__create_engine()
+        self.AsyncSessionLocal: async_scoped_session[AsyncSession] = self.__create_session()
         self.Base = Base
 
-        self.__create_engine()
-        self.AsyncSessionLocal = self.__create_session()
-
-    def __create_engine(self) -> None:
+    def __create_engine(self) -> AsyncEngine:
         try:
-            self.__engine = create_async_engine(
+            return create_async_engine(
                 self.__DATABASE_URL,
                 pool_size=5,  # 连接池大小
                 max_overflow=10,  # 超过连接池大小外最多创建的连接
@@ -59,7 +56,7 @@ class AsyncPgSql:
         return async_scoped_session(session_factory=_async_session, scopefunc=current_task)
 
     @staticmethod
-    def db_first_connection():
+    def db_first_connection() -> None:
         log.info(
             f"✅ 数据库 连接成功 - "
             f"主机:{settings.database.DB_HOST} | "
@@ -68,8 +65,7 @@ class AsyncPgSql:
         )
 
     async def disconnect(self) -> None:
-        if self.__engine:
-            await self.__engine.dispose()
+        await self.__engine.dispose()
 
 
-__all__ = ["AsyncPgSql"]
+__all__ = ["AsyncPgSql", "Base"]

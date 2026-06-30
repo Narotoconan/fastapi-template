@@ -22,10 +22,48 @@ dev = [
     "httpx>=0.28.1",
     "pytest>=9.1.0",
     "ruff>=0.15.11",
+    "ty>=0.0.55",
 ]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
+
+# ==============================================================================
+# ty 配置
+# 文档: https://docs.astral.sh/ty/
+# ==============================================================================
+[tool.ty.environment]
+# 与项目运行时版本保持一致，避免使用 ty 默认的最新 Python 版本推断。
+python-version = "3.12"
+# 项目采用根目录下的 app/ 与 config/ 作为一方包，根目录需参与模块解析。
+root = ["."]
+
+[tool.ty.src]
+# 第一阶段只检查项目源码、配置、测试与入口文件，不扫描缓存、日志、迁移等目录。
+include = [
+    "app",
+    "config",
+    "tests",
+    "main.py",
+]
+exclude = [
+    ".venv",
+    ".git",
+    ".ruff_cache",
+    ".pytest_cache",
+    "__pycache__",
+    "logs",
+    "migrations",
+]
+
+[tool.ty.rules]
+# ty 仍处于 beta，先以 warning 方式接入，待存量诊断治理后再逐步提升为 error。
+all = "warn"
+
+[tool.ty.terminal]
+# 第一阶段允许 warning 不阻断命令退出，用于持续观察类型诊断。
+error-on-warning = false
+output-format = "concise"
 
 # ==============================================================================
 # Ruff 配置

@@ -4,17 +4,29 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="0df6f5e4-8a14-42be-b433-e1db0729378a" name="Changes" comment="docs: 更新 AGENTS.md 和 copilot-instructions.md，补充项目结构、工作原则及 Git 提交规范">
+    <list default="true" id="0df6f5e4-8a14-42be-b433-e1db0729378a" name="Changes" comment="refactor: 更新类型提示，增强代码可读性和一致性；调整数据库连接和装饰器实现">
+      <change beforePath="$PROJECT_DIR$/.github/copilot-instructions.md" beforeDir="false" afterPath="$PROJECT_DIR$/.github/copilot-instructions.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/misc.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/misc.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/AGENTS.md" beforeDir="false" afterPath="$PROJECT_DIR$/AGENTS.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/api/demo.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/api/demo.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/core/cache/decorators.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/core/cache/decorators.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/core/cache/redis.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/core/cache/redis.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/core/database/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/core/database/__init__.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/core/database/postgresql.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/core/database/postgresql.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/core/log/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/core/log/__init__.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/core/log/log_loguru.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/core/log/log_loguru.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/core/rate_limit.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/core/rate_limit.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/exceptions/errors.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/exceptions/errors.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/exceptions/handlers.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/exceptions/handlers.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/middlewares/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/middlewares/__init__.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/middlewares/cors.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/middlewares/cors.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/middlewares/gzip.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/middlewares/gzip.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/exceptions/validation_i18n.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/exceptions/validation_i18n.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/middlewares/jwt_auth.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/middlewares/jwt_auth.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/repositories/base_repo.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/repositories/base_repo.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/schemas/response.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/schemas/response.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/config/app_config.py" beforeDir="false" afterPath="$PROJECT_DIR$/config/app_config.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/pyproject.toml" beforeDir="false" afterPath="$PROJECT_DIR$/pyproject.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/uv.lock" beforeDir="false" afterPath="$PROJECT_DIR$/uv.lock" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -77,28 +89,28 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent"><![CDATA[{
-  "keyToString": {
-    "FastAPI.Unnamed.executor": "Run",
-    "FastAPI.template:dev.executor": "Run",
-    "RunOnceActivity.MCP Project settings loaded": "true",
-    "RunOnceActivity.ShowReadmeOnStart": "true",
-    "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
-    "RunOnceActivity.git.unshallow": "true",
-    "RunOnceActivity.typescript.service.memoryLimit.init": "true",
-    "SHARE_PROJECT_CONFIGURATION_FILES": "true",
-    "copilot.chat.legacySessionMetadata.migrated": "true",
-    "git-widget-placeholder": "feature/codex-ty",
-    "last_opened_file_path": "E:/Code/python/fastapi-template",
-    "node.js.detected.package.eslint": "true",
-    "node.js.detected.package.tslint": "true",
-    "node.js.selected.package.eslint": "(autodetect)",
-    "node.js.selected.package.tslint": "(autodetect)",
-    "nodejs_package_manager_path": "npm",
-    "settings.editor.selected.configurable": "preferences.pluginManager",
-    "vue.rearranger.settings.migration": "true"
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;FastAPI.Unnamed.executor&quot;: &quot;Run&quot;,
+    &quot;FastAPI.template:dev.executor&quot;: &quot;Run&quot;,
+    &quot;RunOnceActivity.MCP Project settings loaded&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.typescript.service.memoryLimit.init&quot;: &quot;true&quot;,
+    &quot;SHARE_PROJECT_CONFIGURATION_FILES&quot;: &quot;true&quot;,
+    &quot;copilot.chat.legacySessionMetadata.migrated&quot;: &quot;true&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;feature/codex-ty&quot;,
+    &quot;last_opened_file_path&quot;: &quot;E:/Code/python/fastapi-template&quot;,
+    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
+    &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
+    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
+    &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
+    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
+    &quot;settings.editor.selected.configurable&quot;: &quot;com.intellij.python.ty.TyConfigurable&quot;,
+    &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
   }
-}]]></component>
+}</component>
   <component name="RecentsManager">
     <key name="CopyFile.RECENT_KEYS">
       <recent name="E:\Code\python\fastapi-template" />
@@ -154,7 +166,8 @@
       <workItem from="1781531680504" duration="3107000" />
       <workItem from="1782227608867" duration="104000" />
       <workItem from="1782227729081" duration="355000" />
-      <workItem from="1782745938019" duration="1988000" />
+      <workItem from="1782745938019" duration="7157000" />
+      <workItem from="1782828717363" duration="2916000" />
     </task>
     <task id="LOCAL-00001" summary="Refactor code for improved type hints and logging; update middleware and database connection handling">
       <option name="closed" value="true" />
@@ -188,7 +201,15 @@
       <option name="project" value="LOCAL" />
       <updated>1782746152949</updated>
     </task>
-    <option name="localTasksCounter" value="5" />
+    <task id="LOCAL-00005" summary="refactor: 优化数据库连接处理，改用异步方式并增强日志记录">
+      <option name="closed" value="true" />
+      <created>1782748112272</created>
+      <option name="number" value="00005" />
+      <option name="presentableId" value="LOCAL-00005" />
+      <option name="project" value="LOCAL" />
+      <updated>1782748112272</updated>
+    </task>
+    <option name="localTasksCounter" value="6" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -210,10 +231,11 @@
     <MESSAGE value="Refactor database connection handling to use async; improve logging on connection success" />
     <MESSAGE value="新增 AGENTS.md 文件，提供 Codex 在 FastAPI 项目中的工作原则与开发规范" />
     <MESSAGE value="docs: 更新 AGENTS.md 和 copilot-instructions.md，补充项目结构、工作原则及 Git 提交规范" />
-    <option name="LAST_COMMIT_MESSAGE" value="docs: 更新 AGENTS.md 和 copilot-instructions.md，补充项目结构、工作原则及 Git 提交规范" />
+    <MESSAGE value="refactor: 优化数据库连接处理，改用异步方式并增强日志记录" />
+    <option name="LAST_COMMIT_MESSAGE" value="refactor: 优化数据库连接处理，改用异步方式并增强日志记录" />
   </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
-    <SUITE FILE_PATH="coverage/fastapi_template$template_dev.coverage" NAME="template:dev Coverage Results" MODIFIED="1781535016235" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="" />
+    <SUITE FILE_PATH="coverage/fastapi_template$template_dev.coverage" NAME="template:dev Coverage Results" MODIFIED="1782748077373" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>

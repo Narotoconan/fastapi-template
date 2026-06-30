@@ -34,7 +34,7 @@ class RedisManager:
     _instance: Optional["RedisManager"] = None
     _pool: ConnectionPool | None = None
     _client: Redis | None = None
-    _heartbeat_task: asyncio.Task | None = None
+    _heartbeat_task: asyncio.Task[None] | None = None
     _heartbeat_interval: int = 30  # 心跳间隔（秒）
     _redis_prefix: str | None = None  # Redis 键前缀
     _reconnect_count: int = 0  # 重连计数

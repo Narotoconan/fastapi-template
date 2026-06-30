@@ -3,7 +3,7 @@ from sqlalchemy import text
 from app.core.log import log
 from config.settings import get_settings
 
-from .postgresql import AsyncPgSql
+from .postgresql import AsyncPgSql, Base
 
 settings = get_settings()
 
@@ -16,7 +16,6 @@ _pgsql = AsyncPgSql(
 )
 
 AsyncSessionLocal = _pgsql.AsyncSessionLocal
-Base = _pgsql.Base
 
 
 async def db_first_connection() -> None:

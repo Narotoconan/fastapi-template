@@ -1,7 +1,7 @@
 """基于 SlowAPI 和 Redis 的接口速率限制。"""
 
 from collections.abc import Callable
-from typing import Any, cast
+from typing import Protocol, TypeVar, cast, override
 from urllib.parse import quote
 
 from fastapi import FastAPI, Request, status
@@ -15,14 +15,23 @@ from app.exceptions import ErrorCode, build_error_response
 from config.cache_config import CacheSettings
 from config.settings import get_settings
 
+EndpointT = TypeVar("EndpointT", bound=Callable[..., object])
+
+
+class EndpointDecorator(Protocol):
+    """保持接口函数签名不变的装饰器协议。"""
+
+    def __call__(self, endpoint: EndpointT, /) -> EndpointT: ...
+
 
 class FailOpenLimiter(Limiter):
     """修复 SlowAPI 存储故障放行后缺少请求状态的问题。"""
 
+    @override
     def _check_request_limit(
         self,
         request: Request,
-        endpoint_func: Callable[..., Any] | None,
+        endpoint_func: Callable[..., object] | None,
         in_middleware: bool = True,
     ) -> None:
         super()._check_request_limit(request, endpoint_func, in_middleware)
@@ -54,10 +63,10 @@ def create_rate_limiter() -> Limiter:
 limiter = create_rate_limiter()
 
 
-def rate_limit(limit_value: str | None = None) -> Callable[..., Any]:
+def rate_limit(limit_value: str | None = None) -> EndpointDecorator:
     """为单个接口声明速率限制，未指定额度时使用项目默认配置。"""
     configured_limit = limit_value or get_settings().rate_limit.RATE_LIMIT_DEFAULT
-    return limiter.limit(configured_limit)
+    return cast(EndpointDecorator, limiter.limit(configured_limit))
 
 
 async def rate_limit_exceeded_handler(request: Request, exc: Exception) -> JSONResponse:

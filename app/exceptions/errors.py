@@ -14,6 +14,7 @@
          服务端内部的 DB/Cache/Timeout 等细节通过日志区分，不透传给前端。
 """
 
+from collections.abc import Mapping
 from enum import IntEnum
 
 
@@ -77,12 +78,12 @@ class BizException(Exception):
         *,
         message: str | None = None,
         http_status: int = 200,
-        result: dict | None = None,
-    ):
+        result: Mapping[str, object] | None = None,
+    ) -> None:
         self.code = int(code)
         self.message = message or get_error_message(self.code)
         self.http_status = http_status
-        self.result = result or {}
+        self.result: Mapping[str, object] = result or {}
         super().__init__(self.message)
 
 
@@ -94,28 +95,28 @@ class AuthException(BizException):
         code: int | ErrorCode = ErrorCode.UNAUTHORIZED,
         *,
         message: str | None = None,
-    ):
+    ) -> None:
         super().__init__(code, message=message, http_status=401)
 
 
 class ForbiddenException(BizException):
     """权限不足异常"""
 
-    def __init__(self, *, message: str | None = None):
+    def __init__(self, *, message: str | None = None) -> None:
         super().__init__(ErrorCode.FORBIDDEN, message=message, http_status=403)
 
 
 class NotFoundException(BizException):
     """资源不存在异常"""
 
-    def __init__(self, *, message: str | None = None):
+    def __init__(self, *, message: str | None = None) -> None:
         super().__init__(ErrorCode.NOT_FOUND, message=message, http_status=404)
 
 
 class ParamsException(BizException):
     """参数校验异常"""
 
-    def __init__(self, *, message: str | None = None):
+    def __init__(self, *, message: str | None = None) -> None:
         super().__init__(ErrorCode.PARAMS_INVALID, message=message, http_status=422)
 
 

@@ -1,4 +1,4 @@
-from typing import ClassVar
+from typing import ClassVar, Self, cast
 
 from sqlalchemy.orm import Query
 from sqlalchemy.sql import Delete, Insert, Select, Update
@@ -8,23 +8,21 @@ SQL = Select | Update | Insert | Delete
 
 
 class BaseRepository:
-    _instances: ClassVar[dict] = {}
+    _instances: ClassVar[dict[type["BaseRepository"], "BaseRepository"]] = {}
 
-    def __new__(cls, *args, **kwargs):
+    def __new__(cls, *args: object, **kwargs: object) -> Self:
         if cls not in cls._instances:
             instance = super().__new__(cls)
             cls._instances[cls] = instance
-        return cls._instances[cls]
+        return cast(Self, cls._instances[cls])
 
     @staticmethod
-    def sql_compile(sql: Query | SQL) -> SQLCompiler:
-        _ = None
-
+    def sql_compile[QueryT](sql: Query[QueryT] | SQL) -> SQLCompiler:
         if isinstance(sql, Query):
-            _ = sql.statement
+            statement = sql.statement
         elif isinstance(sql, SQL):
-            _ = sql
+            statement = sql
         else:
             raise TypeError("sql must be Query or SQL")
 
-        return _.compile(compile_kwargs={"literal_binds": True})
+        return statement.compile(compile_kwargs={"literal_binds": True})

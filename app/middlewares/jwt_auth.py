@@ -10,11 +10,11 @@ request.state，下层路由和依赖项可直接读取。
 与全局异常处理器共享同一套结构，确保错误输出一致。
 """
 
-from collections.abc import Callable
+from typing import override
 
 import jwt
 from fastapi import FastAPI
-from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
 from starlette.responses import Response
 from starlette.types import ASGIApp
@@ -47,7 +47,8 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
         super().__init__(app)
         self._jwt_settings = get_settings().jwt
 
-    async def dispatch(self, request: Request, call_next: Callable) -> Response:
+    @override
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         """中间件核心处理逻辑"""
         # 公开路径跳过鉴权
         if self._is_public_path(request.url.path):
@@ -66,7 +67,7 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
 
         # 解码并验证 Token
         try:
-            payload: dict = jwt.decode(
+            payload: dict[str, object] = jwt.decode(
                 token,
                 self._jwt_settings.JWT_SECRET_KEY,
                 algorithms=[self._jwt_settings.JWT_ALGORITHM],

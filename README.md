@@ -41,6 +41,7 @@
 | 日志 | Loguru |
 | 包管理 | [uv](https://docs.astral.sh/uv/) |
 | 代码检查/格式化 | [Ruff](https://docs.astral.sh/ruff/) |
+| 静态类型检查/语言服务器 | [ty](https://docs.astral.sh/ty/) |
 
 ---
 
@@ -49,7 +50,7 @@
 ```
 anda-erp-alpha/
 ├── main.py                    # 应用入口（配置 → 日志 → FastAPI 按序初始化）
-├── pyproject.toml             # 项目元数据 & Ruff 配置
+├── pyproject.toml             # 项目元数据 & Ruff / ty 配置
 ├── app/
 │   ├── api/                   # 路由层（APIRouter）
 │   ├── core/
@@ -481,7 +482,7 @@ def register_router(app: FastAPI) -> None:
 
 ## 代码规范
 
-项目使用 [Ruff](https://docs.astral.sh/ruff/) 进行代码检查与格式化，目标版本 Python 3.12。
+项目使用 [Ruff](https://docs.astral.sh/ruff/) 进行代码检查与格式化，并使用 [ty](https://docs.astral.sh/ty/) 进行静态类型检查与语言服务器支持，目标版本 Python 3.12。
 
 ```bash
 # 检查
@@ -489,6 +490,9 @@ uv run ruff check .
 
 # 格式化
 uv run ruff format .
+
+# 静态类型检查
+uv run ty check
 ```
 
 | 规则 | 要求 |
@@ -498,8 +502,18 @@ uv run ruff format .
 | `I` (isort) | import 分组排序：标准库 → 第三方 → 项目内部（`app` / `config`） |
 | `UP` (pyupgrade) | 遵循 Python 3.12 新写法（如 `X \| Y` 联合类型） |
 | `B` (bugbear) | 避免常见 Bug 模式 |
+| `ty` | 检查类型推断、返回值、属性访问与导入解析等静态类型问题 |
 
 > ⚠️ 所有提交代码必须通过 `ruff check` 检查，不得引入新的 Lint 错误。
+> `ty` 当前按 warning 方式接入，用于持续观察类型诊断；新增代码应尽量避免引入新的明显类型问题。
+
+### ty 语言服务器
+
+本项目将 `ty` 固定为 dev 依赖，建议编辑器使用项目虚拟环境中的版本：
+
+- PyCharm 2025.3+：在 `Python | Tools | ty` 中启用，并选择 Interpreter mode。
+- VS Code：安装官方 ty 扩展；如需保留其他 Python 语言服务，可按团队约定关闭 ty 的语言服务能力，仅保留类型检查。
+- 其他支持 LSP 的编辑器：使用 `uv run ty server` 接入。
 
 ---
 

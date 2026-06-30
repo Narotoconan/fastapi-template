@@ -3,6 +3,7 @@
 注册到 FastAPI app 后，所有异常会被统一拦截并转换为标准 JSON 响应格式。
 """
 
+from collections.abc import Mapping
 from typing import cast
 
 from fastapi import FastAPI, Request, status
@@ -30,7 +31,7 @@ def build_error_response(
     http_status: int,
     code: int,
     message: str,
-    result: dict | None = None,
+    result: Mapping[str, object] | None = None,
 ) -> JSONResponse:
     """
     构建统一错误 JSON 响应。

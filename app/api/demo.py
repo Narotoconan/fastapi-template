@@ -22,7 +22,7 @@ fake = Faker("zh_CN")
 async def get_user_list_api(
     request: Request,
     pagination: PageDep,
-) -> PageResponseSchema:
+) -> PageResponseSchema[dict[str, str]]:
     """分页查询用户列表 — 演示分页响应"""
     # 模拟数据
     total = 56

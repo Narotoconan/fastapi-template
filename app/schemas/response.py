@@ -15,14 +15,11 @@
     return ResponseSchema.fail(message="参数错误", code=-1)
 """
 
-from typing import Any, TypeVar
+from typing import Any
 
 from pydantic import Field
 
 from app.schemas.base_schema import BaseSchema
-
-T = TypeVar("T")
-
 
 # ==================== 基础响应模型 ====================
 
@@ -77,12 +74,12 @@ class PageResponseSchema[T](BaseSchema):
     def ok(
         cls,
         *,
-        data: list[Any],
+        data: list[T],
         total: int,
         page: int = 1,
         page_size: int = 10,
         message: str = "success",
-    ) -> "PageResponseSchema":
+    ) -> "PageResponseSchema[T]":
         """构建分页成功响应"""
         total_pages = (total + page_size - 1) // page_size if page_size > 0 else 0
         pagination = PageInfo(

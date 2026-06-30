@@ -7,7 +7,7 @@ Pydantic v2 校验错误 中文国际化翻译器
     - 将字段路径 (loc) 格式化为可读的中文字段名
 """
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 
 # ==================== 字段路径格式化 ====================
 
@@ -47,7 +47,11 @@ def format_field_loc(loc: tuple[str | int, ...]) -> str:
 
 # value: str                    → 静态消息
 # value: Callable[[dict], str]  → 动态消息，接收 ctx dict，返回 str
-_ERROR_TYPE_MAP: dict[str, str | Callable[[dict], str]] = {
+ErrorContext = Mapping[str, object]
+ErrorMessageHandler = Callable[[ErrorContext], str]
+ErrorMessage = str | ErrorMessageHandler
+
+_ERROR_TYPE_MAP: dict[str, ErrorMessage] = {
     # ----- 必填 -----
     "missing": "该字段为必填项",
     # ----- 类型错误 -----
@@ -130,26 +134,38 @@ _DEFAULT_MESSAGE = "参数校验失败，请检查输入内容"
 # ==================== 对外翻译接口 ====================
 
 
-def translate_validation_error(error: dict) -> str:
+def _as_error_context(value: object) -> ErrorContext:
+    if not isinstance(value, Mapping):
+        return {}
+    return {str(key): item for key, item in value.items()}
+
+
+def _as_error_loc(value: object) -> tuple[str | int, ...]:
+    if not isinstance(value, (list, tuple)):
+        return ()
+    return tuple(part for part in value if isinstance(part, (str, int)))
+
+
+def translate_validation_error(error: Mapping[str, object]) -> str:
     """
     将单条 Pydantic v2 error dict 翻译为中文消息字符串。
 
     :param error: Pydantic errors() 列表中的单条 error dict
     :return: 格式为 「{field}: {中文消息}」 或 「{中文消息}」（无字段时）
     """
-    error_type: str = error.get("type", "")
-    ctx: dict = error.get("ctx", {})
-    loc: tuple[str | int, ...] = error.get("loc", ())
+    error_type = str(error.get("type", ""))
+    ctx = _as_error_context(error.get("ctx", {}))
+    loc = _as_error_loc(error.get("loc", ()))
 
     # 获取中文消息
     handler = _ERROR_TYPE_MAP.get(error_type, _DEFAULT_MESSAGE)
-    if callable(handler):
+    if isinstance(handler, str):
+        cn_message = handler
+    else:
         try:
             cn_message = handler(ctx)
         except Exception:
             cn_message = _DEFAULT_MESSAGE
-    else:
-        cn_message = handler
 
     # 拼接字段路径
     field = format_field_loc(loc)

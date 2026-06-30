@@ -39,10 +39,6 @@ class _LazyLogger:
     def debug(self, msg: str, *args: Any, **kwargs: Any) -> None:
         self._get().debug(msg, *args, **kwargs)
 
-    def exception(self, msg: str, *args: Any, **kwargs: Any) -> None:
-        """记录 ERROR 级别日志并附带当前异常的完整堆栈信息（exc_info=True）。"""
-        self._get().exception(msg, *args, **kwargs)
-
 
 log = _LazyLogger()
 

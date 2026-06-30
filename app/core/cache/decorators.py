@@ -4,13 +4,18 @@ import functools
 import hashlib
 import inspect
 import json
-from collections.abc import Callable
-from typing import Any
+from collections.abc import Awaitable, Callable, Mapping
+from typing import ParamSpec, TypeVar, cast
 
 from app.core.cache.redis import get_redis_manager
 
+P = ParamSpec("P")
+R = TypeVar("R")
 
-def cache(key_prefix: str = "", ttl: int | None = None) -> Callable:
+
+def cache(
+    key_prefix: str = "", ttl: int | None = None
+) -> Callable[[Callable[P, Awaitable[R]]], Callable[P, Awaitable[R]]]:
     """支持 TTL 的异步函数结果缓存装饰器。
 
     使用 exists() 先行检查键是否存在，再取值，
@@ -18,12 +23,12 @@ def cache(key_prefix: str = "", ttl: int | None = None) -> Callable:
     避免返回 None 的函数每次均穿透缓存直接执行。
     """
 
-    def decorator(func: Callable) -> Callable:
+    def decorator(func: Callable[P, Awaitable[R]]) -> Callable[P, Awaitable[R]]:
         if not inspect.iscoroutinefunction(func):
             raise RuntimeError("Cache decorator only supports async functions")
 
         @functools.wraps(func)
-        async def wrapper(*args, **kwargs) -> Any:
+        async def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
             cache_key = _generate_cache_key(func, key_prefix, args, kwargs)
             redis_manager = get_redis_manager()
 
@@ -31,7 +36,7 @@ def cache(key_prefix: str = "", ttl: int | None = None) -> Callable:
             # - exists == 0：缓存未命中，执行原函数并写入缓存
             # - exists >= 1：缓存命中，直接返回（即便值本身是 None）
             if await redis_manager.exists(cache_key):
-                return await redis_manager.get(cache_key)
+                return cast(R, await redis_manager.get(cache_key))
 
             result = await func(*args, **kwargs)
             await redis_manager.set(cache_key, result, ex=ttl)
@@ -42,9 +47,11 @@ def cache(key_prefix: str = "", ttl: int | None = None) -> Callable:
     return decorator
 
 
-def _generate_cache_key(func: Callable, prefix: str, args: tuple, kwargs: dict) -> str:
+def _generate_cache_key(
+    func: Callable[..., Awaitable[object]], prefix: str, args: tuple[object, ...], kwargs: Mapping[str, object]
+) -> str:
     """Generate cache key from function name and parameters"""
-    func_name = func.__name__
+    func_name = getattr(func, "__name__", func.__class__.__name__)
     key_base = f"{prefix}:{func_name}" if prefix else func_name
     params = json.dumps({"args": args, "kwargs": kwargs}, default=str, sort_keys=True)
     param_hash = hashlib.md5(params.encode()).hexdigest()[:8]
