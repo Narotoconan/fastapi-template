@@ -47,7 +47,7 @@ register_middlewares(app)
 | 环境变量                           | 默认值     | 说明                          |
 |--------------------------------|---------|-----------------------------|
 | `CORS_ALLOW_ORIGINS`           | `["*"]` | 允许的跨域来源，生产环境应填写具体域名         |
-| `CORS_ALLOW_CREDENTIALS`       | `true`  | 是否允许携带 Cookie/凭据            |
+| `CORS_ALLOW_CREDENTIALS`       | `false` | 是否允许携带 Cookie/凭据            |
 | `CORS_ALLOW_METHODS`           | `["*"]` | 允许的 HTTP 方法                 |
 | `CORS_ALLOW_HEADERS`           | `["*"]` | 允许的请求头                      |
 | `GZIP_MINIMUM_SIZE`            | `1000`  | 触发 GZip 压缩的响应体最小字节数         |

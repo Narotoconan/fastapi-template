@@ -73,7 +73,7 @@ return PageResponseSchema.ok(
   "code": 0,
   "message": "success",
   "result": {
-    "items": [{"id": 1, "name": "张三"}, {"id": 2, "name": "李四"}],
+    "data": [{"id": 1, "name": "张三"}, {"id": 2, "name": "李四"}],
     "pagination": {
       "page": 1,
       "page_size": 10,
