@@ -21,6 +21,8 @@
 * 数据库操作位于 `app/repositories/`。
 * 异常定义与异常处理器位于 `app/exceptions/`。
 * 日志、数据库、缓存、限流等基础能力位于 `app/core/`。
+* 项目枚举类型数据位于 `app/enums/`。公共枚举类型可放在 `app/enums/common.py`，业务相关枚举类型可放在 `app/enums/xxx.py`。
+* 定时任务相关逻辑位于 `app/scheduler/`。
 * 项目总体分三层：路由层（router）、服务层（service）、数据访问层（repository）。
 
 ## Codex 工作原则
