@@ -10,5 +10,6 @@ __pycache__/
 .coverage
 htmlcov/
 .idea/
+.ai
 *.pyc
 *.log
