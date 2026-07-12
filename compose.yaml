@@ -1,0 +1,42 @@
+name: fastapi-template
+
+services:
+  api:
+    build:
+      context: .
+      target: runtime
+    image: fastapi-template:local
+    environment:
+      DB_HOST: ${DB_HOST:?DB_HOST is required}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+      DB_DATABASE: ${DB_DATABASE:-postgres}
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-5}
+      DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-10}
+      DB_POOL_RECYCLE: ${DB_POOL_RECYCLE:-300}
+      DB_POOL_TIMEOUT: ${DB_POOL_TIMEOUT:-30}
+      DB_COMMAND_TIMEOUT: ${DB_COMMAND_TIMEOUT:-60}
+      DB_CONNECT_TIMEOUT: ${DB_CONNECT_TIMEOUT:-30}
+      REDIS_HOST: ${REDIS_HOST:?REDIS_HOST is required}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_DB: ${REDIS_DB:-0}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      REDIS_MAX_CONNECTIONS: ${REDIS_MAX_CONNECTIONS:-10}
+      REDIS_TIMEOUT: ${REDIS_TIMEOUT:-5}
+      REDIS_PREFIX: ${REDIS_PREFIX:-fastapi_template}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:?JWT_SECRET_KEY is required}
+      RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-false}
+      RATE_LIMIT_DEFAULT: ${RATE_LIMIT_DEFAULT:-100/minute}
+    ports:
+      - "${API_PORT:?API_PORT is required}:8000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./logs:/app/logs
+    restart: unless-stopped
+    stop_grace_period: 30s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL

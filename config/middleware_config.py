@@ -5,6 +5,7 @@
 所有字段均可通过环境变量覆盖（Pydantic-Settings 自动读取）。
 """
 
+from pydantic import Field
 from pydantic_settings import BaseSettings
 
 
@@ -33,8 +34,8 @@ class GZipSettings(BaseSettings):
 class JWTSettings(BaseSettings):
     """JWT 鉴权中间件配置"""
 
-    # 签名密钥，生产环境务必通过环境变量 JWT_SECRET_KEY 注入强随机值
-    JWT_SECRET_KEY: str = "change-me-in-production-use-env-var"
+    # 签名密钥必须通过环境变量注入，最少 32 个字符
+    JWT_SECRET_KEY: str = Field(min_length=32)
     # 签名算法
     JWT_ALGORITHM: str = "HS256"
     # Access Token 有效期（小时），默认 24 小时

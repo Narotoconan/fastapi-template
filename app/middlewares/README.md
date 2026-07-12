@@ -51,7 +51,7 @@ register_middlewares(app)
 | `CORS_ALLOW_METHODS`           | `["*"]` | 允许的 HTTP 方法                 |
 | `CORS_ALLOW_HEADERS`           | `["*"]` | 允许的请求头                      |
 | `GZIP_MINIMUM_SIZE`            | `1000`  | 触发 GZip 压缩的响应体最小字节数         |
-| `JWT_SECRET_KEY`               | *(需修改)* | JWT 签名密钥，**生产环境必须通过环境变量注入** |
+| `JWT_SECRET_KEY`               | *(必填)* | JWT 签名密钥，至少 32 个字符，必须通过环境变量注入 |
 | `JWT_ALGORITHM`                | `HS256` | JWT 签名算法                    |
 | `JWT_ACCESS_TOKEN_EXPIRE_HOUR` | `24`    | Token 有效期（小时），默认 24 小时      |
 | `JWT_PUBLIC_PATHS`             | 见下方     | 跳过鉴权的公开路径列表（JSON 数组格式）      |

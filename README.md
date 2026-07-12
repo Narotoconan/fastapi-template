@@ -9,6 +9,7 @@
 - [技术栈](#技术栈)
 - [项目结构](#项目结构)
 - [快速开始](#快速开始)
+- [Docker 运行](#docker-运行)
 - [环境变量配置](#环境变量配置)
 - [核心模块](#核心模块)
   - [统一响应格式](#统一响应格式)
@@ -50,6 +51,10 @@
 ```
 fastapi-template/
 ├── main.py                    # 应用入口（配置 → 日志 → FastAPI 按序初始化）
+├── Dockerfile                 # 多阶段生产镜像
+├── compose.yaml               # API 容器编排（连接外部 PostgreSQL / Redis）
+├── .dockerignore              # Docker 构建上下文忽略规则
+├── .env.docker.example        # Docker 环境变量示例
 ├── pyproject.toml             # 项目元数据 & Ruff / ty 配置
 ├── uv.lock                    # uv 锁定文件
 ├── tests/                     # 测试用例
@@ -97,7 +102,7 @@ uv sync
 
 ### 2. 配置环境变量
 
-仓库提供 `.env.example` 作为配置示例。当前配置类默认读取**进程环境变量**；如果希望直接读取根目录 `.env`，需要在配置类中显式设置 `env_file=".env"`，或由 IDE、部署平台、启动脚本先加载环境变量。
+仓库提供 `.env.example` 作为配置示例。当前配置类默认读取**进程环境变量**；如果希望直接读取根目录 `.env`，需要在配置类中显式设置 `env_file=".env"`，或由 IDE、部署平台、启动脚本先加载环境变量。`DB_PASSWORD` 与 `JWT_SECRET_KEY` 没有代码默认值，启动前必须显式配置。
 
 最小配置示例：
 
@@ -108,6 +113,12 @@ DB_PORT=5432
 DB_USER=postgres
 DB_PASSWORD=your_password
 DB_DATABASE=postgres
+DB_POOL_SIZE=5
+DB_MAX_OVERFLOW=10
+DB_POOL_RECYCLE=300
+DB_POOL_TIMEOUT=30
+DB_COMMAND_TIMEOUT=60
+DB_CONNECT_TIMEOUT=30
 
 # Redis
 REDIS_HOST=localhost
@@ -119,8 +130,8 @@ REDIS_PASSWORD=
 RATE_LIMIT_ENABLED=false
 RATE_LIMIT_DEFAULT=100/minute
 
-# JWT（生产环境必须替换！）
-JWT_SECRET_KEY=change-me-in-production-use-env-var
+# JWT（必填，至少 32 个字符）
+JWT_SECRET_KEY=replace-with-a-strong-random-secret
 ```
 
 启动前请确保 PostgreSQL 与 Redis 可连接；应用启动生命周期会执行数据库 `SELECT 1` 和 Redis `PING`。
@@ -136,12 +147,70 @@ uv run uvicorn main:app --reload
 | http://localhost:8000/docs | Swagger UI 交互文档 |
 | http://localhost:8000/redoc | ReDoc 文档 |
 | http://localhost:8000/openapi.json | OpenAPI Schema |
+| http://localhost:8000/health | PostgreSQL 与 Redis 健康状态 |
+
+---
+
+## Docker 运行
+
+项目提供生产型多阶段镜像和只运行 API 的 Compose 编排。PostgreSQL 与 Redis 使用外部已有服务，不会由 Compose 创建；应用启动时会将两者作为强依赖进行连接检查。
+
+### 1. 创建 Docker 环境变量文件
+
+```powershell
+Copy-Item .env.docker.example .env.docker
+```
+
+必须在 `.env.docker` 中填写：
+
+```dotenv
+API_PORT=宿主机对外端口，例如8000
+DB_HOST=容器可访问的PostgreSQL地址
+DB_PASSWORD=至少6个字符的数据库密码
+REDIS_HOST=容器可访问的Redis地址
+JWT_SECRET_KEY=至少32个字符的强随机密钥
+```
+
+外部 Redis 开启认证时还需要填写 `REDIS_PASSWORD`；未开启认证时保持为空。`.env.docker` 已加入 `.gitignore`，不得提交真实凭据。
+
+如果 PostgreSQL 或 Redis 运行在 Docker 宿主机上，`DB_HOST` / `REDIS_HOST` 可填写 `host.docker.internal`；Compose 已为 Linux Docker Engine 配置对应的 `host-gateway` 映射。远程服务则填写容器网络能够访问的内网域名或 IP，不能填写 `localhost`，因为容器中的 `localhost` 指向 API 容器自身。
+
+### 2. 构建并启动
+
+```bash
+docker compose --env-file .env.docker up --build -d
+docker compose --env-file .env.docker ps
+```
+
+Compose 只启动 API 容器，宿主机对外端口由必填的 `API_PORT` 决定；容器内部固定监听 `8000`，不会创建、停止或删除外部 PostgreSQL/Redis。应用文件日志映射到根目录 `logs/`。
+
+Linux 宿主机首次启动前需要确保日志目录对镜像内 UID `10001` 可写；Windows Docker Desktop 无需额外处理：
+
+```bash
+mkdir -p logs
+sudo chown 10001:10001 logs
+```
+
+### 3. 检查与停止
+
+```bash
+docker compose --env-file .env.docker logs -f api
+docker compose --env-file .env.docker down
+```
+
+健康检查接口：
+
+```text
+GET http://localhost:8000/health
+```
+
+PostgreSQL 和 Redis 均正常时返回 HTTP 200，任一外部关键依赖不可用时返回 HTTP 503。`docker compose down` 只停止并删除 API 容器，不影响外部 PostgreSQL 和 Redis。
 
 ---
 
 ## 环境变量配置
 
-所有配置均通过 **Pydantic-Settings** 管理，默认读取进程环境变量；未提供环境变量时使用代码内默认值。当前代码未配置 `env_file`，因此不会自动加载根目录 `.env` 文件。
+所有配置均通过 **Pydantic-Settings** 管理，默认读取进程环境变量；除明确标记为必填的敏感配置外，未提供环境变量时使用代码内默认值。当前代码未配置 `env_file`，因此不会自动加载根目录 `.env` 文件。
 
 ### 数据库
 
@@ -150,8 +219,14 @@ uv run uvicorn main:app --reload
 | `DB_HOST` | `localhost` | PostgreSQL 主机地址 |
 | `DB_PORT` | `5432` | 端口 |
 | `DB_USER` | `postgres` | 用户名 |
-| `DB_PASSWORD` | `123456` | 密码（生产环境必须覆盖） |
+| `DB_PASSWORD` | 无，必填 | PostgreSQL 密码，不允许空字符串 |
 | `DB_DATABASE` | `postgres` | 数据库名 |
+| `DB_POOL_SIZE` | `5` | 单个应用进程的常驻连接池大小，必须大于 0 |
+| `DB_MAX_OVERFLOW` | `10` | 单个应用进程允许临时创建的额外连接数，必须大于等于 0 |
+| `DB_POOL_RECYCLE` | `300` | 连接回收周期（秒），`-1` 表示禁用回收 |
+| `DB_POOL_TIMEOUT` | `30` | 从连接池获取连接的最长等待时间（秒） |
+| `DB_COMMAND_TIMEOUT` | `60` | asyncpg 命令执行超时（秒） |
+| `DB_CONNECT_TIMEOUT` | `30` | asyncpg 建立连接超时（秒） |
 
 ### Redis 缓存
 
@@ -176,7 +251,7 @@ uv run uvicorn main:app --reload
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `JWT_SECRET_KEY` | `change-me-in-production-use-env-var` | ⚠️ 生产环境必须替换为强随机值 |
+| `JWT_SECRET_KEY` | 无，必填 | JWT 签名密钥，至少 32 个字符 |
 | `JWT_ALGORITHM` | `HS256` | 签名算法 |
 | `JWT_ACCESS_TOKEN_EXPIRE_HOUR` | `24` | Token 有效期（小时） |
 | `JWT_PUBLIC_PATHS` | `/docs`, `/redoc`, `/openapi.json`, `/favicon.ico`, `/health`, `/api/auth/login`, `/api/auth/register` | 跳过鉴权的公开路径（前缀匹配） |

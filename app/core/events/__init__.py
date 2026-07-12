@@ -1,3 +1,4 @@
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -7,10 +8,13 @@ from .startup import startup
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    """管理应用生命周期，并确保退出时释放数据库和缓存资源。"""
     await startup()
-    yield
-    await shutdown()
+    try:
+        yield
+    finally:
+        await shutdown()
 
 
 __all__ = ["lifespan"]

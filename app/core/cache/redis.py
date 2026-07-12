@@ -6,13 +6,15 @@ Redis 异步连接管理器 - 轻量级设计
 import asyncio
 import builtins
 import json
-from collections.abc import Awaitable
-from typing import Any, Optional, cast
+from collections.abc import Awaitable, Mapping
+from typing import Any, Optional, Protocol, cast
 
 import redis.asyncio as redis
 from redis.asyncio import ConnectionPool, Redis
+from redis.typing import EncodableT
 
 from app.core.log import log
+from config.cache_config import CacheSettings
 from config.settings import get_settings
 
 
@@ -26,6 +28,26 @@ async def _await_redis_response[ResponseT](response: Awaitable[ResponseT] | Resp
     if isinstance(response, Awaitable):
         return await cast(Awaitable[ResponseT], response)
     return cast(ResponseT, response)
+
+
+def _create_connection_pool(cache_config: CacheSettings) -> ConnectionPool:
+    """使用结构化参数创建 Redis 连接池，避免密码参与 URL 字符串拼接。"""
+    return ConnectionPool(
+        host=cache_config.REDIS_HOST,
+        port=cache_config.REDIS_PORT,
+        db=cache_config.REDIS_DB,
+        password=cache_config.REDIS_PASSWORD,
+        max_connections=cache_config.REDIS_MAX_CONNECTIONS,
+        socket_connect_timeout=cache_config.REDIS_TIMEOUT,
+        socket_keepalive=True,
+        decode_responses=True,
+    )
+
+
+class _AsyncHashCommands(Protocol):
+    """收窄 redis-py 同步/异步混合声明中的异步 Hash 命令类型。"""
+
+    def hset(self, name: str, *, mapping: Mapping[str, EncodableT]) -> Awaitable[int]: ...
 
 
 class RedisManager:
@@ -93,15 +115,7 @@ class RedisManager:
 
             # 创建连接池
             log.debug(f"[Redis] 创建连接池 - 最大连接数:{cache_config.REDIS_MAX_CONNECTIONS}")
-            pool = ConnectionPool.from_url(
-                url=f"redis://:{cache_config.REDIS_PASSWORD}@{cache_config.REDIS_HOST}:{cache_config.REDIS_PORT}/{cache_config.REDIS_DB}"
-                if cache_config.REDIS_PASSWORD
-                else f"redis://{cache_config.REDIS_HOST}:{cache_config.REDIS_PORT}/{cache_config.REDIS_DB}",
-                max_connections=cache_config.REDIS_MAX_CONNECTIONS,
-                socket_connect_timeout=cache_config.REDIS_TIMEOUT,
-                socket_keepalive=True,
-                decode_responses=True,
-            )
+            pool = _create_connection_pool(cache_config)
             self._pool = pool
 
             # 创建 Redis 客户端
@@ -152,6 +166,11 @@ class RedisManager:
             self._pool = None
 
         log.info("✅ Redis 已断开连接")
+
+    async def ping(self) -> bool:
+        """检查当前 Redis 连接是否可用。"""
+        client = self._require_client()
+        return cast(bool, await _await_redis_response(client.ping()))
 
     def _start_heartbeat(self) -> None:
         """启动心跳检查任务"""
@@ -215,7 +234,7 @@ class RedisManager:
             client = self._require_client()
             prefixed_key = self._get_prefixed_key(key)
             serialized_value = self._serialize(value)
-            result = await _await_redis_response(client.set(prefixed_key, serialized_value, ex=ex))
+            result = cast(bool, await _await_redis_response(client.set(prefixed_key, serialized_value, ex=ex)))
             return result
         except Exception as e:
             log.error(f"❌ 设置缓存失败 ({key}): {e}")
@@ -249,7 +268,7 @@ class RedisManager:
         try:
             client = self._require_client()
             prefixed_keys = [self._get_prefixed_key(k) for k in keys]
-            return await _await_redis_response(client.delete(*prefixed_keys))
+            return cast(int, await _await_redis_response(client.delete(*prefixed_keys)))
         except Exception as e:
             log.error(f"❌ 删除缓存失败: {e}")
             raise
@@ -261,7 +280,7 @@ class RedisManager:
         try:
             client = self._require_client()
             prefixed_keys = [self._get_prefixed_key(k) for k in keys]
-            return await _await_redis_response(client.exists(*prefixed_keys))
+            return cast(int, await _await_redis_response(client.exists(*prefixed_keys)))
         except Exception as e:
             log.error(f"❌ 检查键存在性失败: {e}")
             raise
@@ -285,7 +304,7 @@ class RedisManager:
         try:
             client = self._require_client()
             prefixed_key = self._get_prefixed_key(key)
-            result = await _await_redis_response(client.expire(prefixed_key, ex))
+            result = cast(bool, await _await_redis_response(client.expire(prefixed_key, ex)))
             if result:
                 log.debug(f"✅ 已为键 {key} 设置过期时间: {ex} 秒")
             else:
@@ -303,7 +322,7 @@ class RedisManager:
         try:
             client = self._require_client()
             prefixed_key = self._get_prefixed_key(key)
-            return await _await_redis_response(client.ttl(prefixed_key))
+            return cast(int, await _await_redis_response(client.ttl(prefixed_key)))
         except Exception as e:
             log.error(f"❌ 获取键存活时间失败 ({key}): {e}")
             raise
@@ -322,7 +341,7 @@ class RedisManager:
         try:
             client = self._require_client()
             serialized_data = {self._get_prefixed_key(k): self._serialize(v) for k, v in data.items()}
-            result = await _await_redis_response(client.mset(serialized_data))
+            result = cast(bool, await _await_redis_response(client.mset(serialized_data)))
 
             # 如果设置了过期时间，使用 pipeline 批量发送 expire 命令，避免 N 次网络往返
             if ex is not None:
@@ -350,9 +369,9 @@ class RedisManager:
         try:
             client = self._require_client()
             prefixed_keys = [self._get_prefixed_key(k) for k in keys]
-            values = await _await_redis_response(client.mget(*prefixed_keys))
+            values = cast(list[str | None], await _await_redis_response(client.mget(*prefixed_keys)))
             # 对每个值进行反序列化，处理可能的异常
-            result = []
+            result: list[Any] = []
             for i, v in enumerate(values):
                 if v is None:
                     result.append(None)
@@ -379,8 +398,11 @@ class RedisManager:
         try:
             client = self._require_client()
             prefixed_name = self._get_prefixed_key(name)
-            serialized_mapping = {k: self._serialize(v) for k, v in mapping.items()}
-            result = await _await_redis_response(client.hset(prefixed_name, mapping=serialized_mapping))
+            serialized_mapping: Mapping[str, EncodableT] = {
+                key: self._serialize(value) for key, value in mapping.items()
+            }
+            hash_commands = cast(_AsyncHashCommands, client)
+            result = await hash_commands.hset(prefixed_name, mapping=serialized_mapping)
 
             # 如果设置了过期时间
             if ex is not None:
@@ -407,9 +429,9 @@ class RedisManager:
         try:
             client = self._require_client()
             prefixed_name = self._get_prefixed_key(name)
-            data = await _await_redis_response(client.hgetall(prefixed_name))
+            data = cast(dict[str, str], await _await_redis_response(client.hgetall(prefixed_name)))
             # 对每个值进行反序列化，处理可能的异常
-            result = {}
+            result: dict[str, Any] = {}
             for k, v in data.items():
                 try:
                     result[k] = self._deserialize(v)
@@ -428,7 +450,7 @@ class RedisManager:
         try:
             client = self._require_client()
             prefixed_name = self._get_prefixed_key(name)
-            return await _await_redis_response(client.hdel(prefixed_name, *keys))
+            return cast(int, await _await_redis_response(client.hdel(prefixed_name, *keys)))
         except Exception as e:
             log.error(f"❌ 哈希删除失败 ({name}): {e}")
             raise
@@ -447,7 +469,7 @@ class RedisManager:
             client = self._require_client()
             prefixed_name = self._get_prefixed_key(name)
             serialized_values = [self._serialize(v) for v in values]
-            result = await _await_redis_response(client.lpush(prefixed_name, *serialized_values))
+            result = cast(int, await _await_redis_response(client.lpush(prefixed_name, *serialized_values)))
 
             # 如果设置了过期时间
             if ex is not None:
@@ -470,7 +492,7 @@ class RedisManager:
             client = self._require_client()
             prefixed_name = self._get_prefixed_key(name)
             serialized_values = [self._serialize(v) for v in values]
-            result = await _await_redis_response(client.rpush(prefixed_name, *serialized_values))
+            result = cast(int, await _await_redis_response(client.rpush(prefixed_name, *serialized_values)))
 
             # 如果设置了过期时间
             if ex is not None:
@@ -486,9 +508,9 @@ class RedisManager:
         try:
             client = self._require_client()
             prefixed_name = self._get_prefixed_key(name)
-            values = await _await_redis_response(client.lrange(prefixed_name, start, end))
+            values = cast(list[str], await _await_redis_response(client.lrange(prefixed_name, start, end)))
             # 对每个元素进行反序列化，处理可能的异常
-            result = []
+            result: list[Any] = []
             for v in values:
                 try:
                     result.append(self._deserialize(v))
@@ -536,7 +558,7 @@ class RedisManager:
             client = self._require_client()
             prefixed_name = self._get_prefixed_key(name)
             serialized_members = [self._serialize(m) for m in members]
-            result = await _await_redis_response(client.sadd(prefixed_name, *serialized_members))
+            result = cast(int, await _await_redis_response(client.sadd(prefixed_name, *serialized_members)))
 
             # 如果设置了过期时间
             if ex is not None:
@@ -552,9 +574,9 @@ class RedisManager:
         try:
             client = self._require_client()
             prefixed_name = self._get_prefixed_key(name)
-            members = await _await_redis_response(client.smembers(prefixed_name))
+            members = cast(builtins.set[str], await _await_redis_response(client.smembers(prefixed_name)))
             # 对每个成员进行反序列化，处理可能的异常
-            result = set()
+            result: builtins.set[Any] = set()
             for m in members:
                 try:
                     result.add(self._deserialize(m))
@@ -574,7 +596,7 @@ class RedisManager:
             client = self._require_client()
             prefixed_name = self._get_prefixed_key(name)
             serialized_members = [self._serialize(m) for m in members]
-            return await _await_redis_response(client.srem(prefixed_name, *serialized_members))
+            return cast(int, await _await_redis_response(client.srem(prefixed_name, *serialized_members)))
         except Exception as e:
             log.error(f"❌ 集合移除失败 ({name}): {e}")
             raise
