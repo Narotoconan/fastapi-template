@@ -12,7 +12,7 @@ class CacheSettings(BaseSettings):
 
     # Redis 键前缀 - 手动配置，用于区分多个项目在同一 Redis 实例中的数据
     # 示例: "anda_erp", "shop_system", "blog_platform"
-    REDIS_PREFIX: str = "anda_erp"
+    REDIS_PREFIX: str = "template"
 
 
 __all__ = ["CacheSettings"]
