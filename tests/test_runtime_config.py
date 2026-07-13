@@ -10,6 +10,7 @@ from app.core.database.postgresql import build_database_url
 from config.cache_config import CacheSettings
 from config.database_config import DatabaseSettings
 from config.middleware_config import JWTSettings
+from config.settings import get_settings
 
 
 def test_database_password_is_required(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -91,9 +92,11 @@ def test_redis_pool_preserves_password_special_characters() -> None:
     assert pool.connection_kwargs["db"] == 2
 
 
-def test_lifespan_always_runs_shutdown(monkeypatch: pytest.MonkeyPatch) -> None:
-    """应用处理阶段异常时仍应执行生命周期清理逻辑。"""
+def test_lifespan_logs_version_after_startup_and_always_runs_shutdown(monkeypatch: pytest.MonkeyPatch) -> None:
+    """应用应在初始化完成后记录版本，并在处理阶段异常时执行清理。"""
     lifecycle_calls: list[str] = []
+    settings = get_settings()
+    expected_version_log = f"✅ 应用启动完成 | name={settings.app.APP_NAME} | version={settings.app.APP_VERSION}"
 
     async def mock_startup() -> None:
         lifecycle_calls.append("startup")
@@ -103,6 +106,7 @@ def test_lifespan_always_runs_shutdown(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(events_module, "startup", mock_startup)
     monkeypatch.setattr(events_module, "shutdown", mock_shutdown)
+    monkeypatch.setattr(events_module.log, "info", lifecycle_calls.append)
 
     async def run_case() -> None:
         async with events_module.lifespan(FastAPI()):
@@ -111,4 +115,4 @@ def test_lifespan_always_runs_shutdown(monkeypatch: pytest.MonkeyPatch) -> None:
     with pytest.raises(RuntimeError, match="模拟应用运行异常"):
         asyncio.run(run_case())
 
-    assert lifecycle_calls == ["startup", "shutdown"]
+    assert lifecycle_calls == ["startup", expected_version_log, "shutdown"]
