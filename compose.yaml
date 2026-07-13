@@ -19,7 +19,11 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
-      - ./logs:/app/logs
+      - type: bind
+        source: ./logs
+        target: /app/logs
+        bind:
+          create_host_path: false
     restart: unless-stopped
     stop_grace_period: 30s
     security_opt:

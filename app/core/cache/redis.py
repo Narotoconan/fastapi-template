@@ -58,6 +58,7 @@ class RedisManager:
     _client: Redis | None = None
     _heartbeat_task: asyncio.Task[None] | None = None
     _heartbeat_interval: int = 30  # 心跳间隔（秒）
+    _reconnect_interval: int = 5  # 重连等待间隔（秒）
     _redis_prefix: str | None = None  # Redis 键前缀
     _reconnect_count: int = 0  # 重连计数
     _max_reconnect_attempts: int = 5  # 最大重连次数
@@ -133,11 +134,12 @@ class RedisManager:
             )
 
             # 启动心跳检查任务
+            self._reconnect_count = 0
             self._start_heartbeat()
 
         except Exception as e:
             log.error(f"❌ Redis 连接失败: {e}")
-            await self.disconnect()
+            await self._close_connections()
             raise
 
     async def disconnect(self) -> None:
@@ -147,25 +149,29 @@ class RedisManager:
         # 停止心跳检查
         self._stop_heartbeat()
 
+        await self._close_connections()
+        log.info("✅ Redis 已断开连接")
+
+    async def _close_connections(self) -> None:
+        """关闭 Redis 客户端与连接池，但不改变当前心跳任务状态。"""
+
         client = self._client
+        self._client = None
         if client is not None:
             try:
                 await _await_redis_response(client.close())
                 log.debug("✅ Redis 客户端已关闭")
             except Exception as e:
                 log.warning(f"⚠️ 关闭 Redis 客户端异常: {e}")
-            self._client = None
 
         pool = self._pool
+        self._pool = None
         if pool is not None:
             try:
                 await _await_redis_response(pool.disconnect())
                 log.debug("✅ Redis 连接池已断开")
             except Exception as e:
                 log.warning(f"⚠️ Redis 连接池断开异常: {e}")
-            self._pool = None
-
-        log.info("✅ Redis 已断开连接")
 
     async def ping(self) -> bool:
         """检查当前 Redis 连接是否可用。"""
@@ -183,43 +189,65 @@ class RedisManager:
 
     def _stop_heartbeat(self) -> None:
         """停止心跳检查任务"""
-        if self._heartbeat_task is not None:
-            self._heartbeat_task.cancel()
-            self._heartbeat_task = None
-            log.debug("❤️ Redis 心跳检查已停止")
+        heartbeat_task = self._heartbeat_task
+        if heartbeat_task is None:
+            return
+
+        if heartbeat_task is not asyncio.current_task():
+            heartbeat_task.cancel()
+        self._heartbeat_task = None
+        log.debug("❤️ Redis 心跳检查已停止")
+
+    async def _reconnect(self) -> bool:
+        """关闭失效连接并按上限重试，成功时继续复用当前心跳任务。"""
+        await self._close_connections()
+
+        while self._reconnect_count < self._max_reconnect_attempts:
+            self._reconnect_count += 1
+            current_attempt = self._reconnect_count
+            log.info(f"🔄 尝试重新连接 Redis ({current_attempt}/{self._max_reconnect_attempts})...")
+
+            await asyncio.sleep(self._reconnect_interval)
+            try:
+                await self.connect()
+            except asyncio.CancelledError:
+                raise
+            except Exception as reconnect_error:
+                log.error(f"❌ Redis 重连失败 ({current_attempt}/{self._max_reconnect_attempts}): {reconnect_error}")
+                continue
+
+            self._reconnect_count = 0
+            log.info("✅ Redis 重连成功")
+            return True
+
+        log.error("❌ 达到最大重连次数，停止重连")
+        return False
 
     async def _heartbeat_loop(self) -> None:
         """心跳检查循环"""
-        while True:
-            try:
-                await asyncio.sleep(self._heartbeat_interval)
-
-                client = self._client
-                if client is None:
-                    break
-
-                # 执行 ping 测试连接
-                await _await_redis_response(client.ping())
-                log.debug("❤️ Redis 心跳检查: 正常")
-
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                log.warning(f"⚠️ Redis 心跳检查失败: {e}")
-                # 尝试重新连接
+        heartbeat_task = asyncio.current_task()
+        try:
+            while True:
                 try:
-                    log.info("🔄 开始重连 Redis...")
-                    await self.disconnect()
-                    await asyncio.sleep(5)
-                    log.info("🔄 尝试重新连接 Redis...")
-                    await self.connect()
-                    log.info("✅ Redis 重连成功")
-                except Exception as reconnect_error:
-                    log.error(f"❌ Redis 重连失败: {reconnect_error}")
-                    self._reconnect_count += 1
-                    if self._reconnect_count >= self._max_reconnect_attempts:
-                        log.error("❌ 达到最大重连次数，停止重连")
+                    await asyncio.sleep(self._heartbeat_interval)
+
+                    client = self._client
+                    if client is None:
                         break
+
+                    # 执行 ping 测试连接
+                    await _await_redis_response(client.ping())
+                    log.debug("❤️ Redis 心跳检查: 正常")
+
+                except asyncio.CancelledError:
+                    raise
+                except Exception as e:
+                    log.warning(f"⚠️ Redis 心跳检查失败: {e}")
+                    if not await self._reconnect():
+                        break
+        finally:
+            if self._heartbeat_task is heartbeat_task:
+                self._heartbeat_task = None
 
     # ==================== Key-Value 操作 ====================
 

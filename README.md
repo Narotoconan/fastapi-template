@@ -171,6 +171,8 @@ REDIS_HOST=容器可访问的Redis地址
 JWT_SECRET_KEY=至少32个字符的强随机密钥
 ```
 
+密码或密钥包含 `$`、`${...}`、空格、`#` 等特殊字符时，应使用单引号包裹，例如 `DB_PASSWORD='实际密码'`，避免 Compose 将其插值或截断。
+
 外部 Redis 开启认证时还需要取消 `REDIS_PASSWORD` 的注释并填写密码；未开启认证时保持该配置为注释状态。`.env.docker` 已加入 `.gitignore`，不得提交真实凭据。
 
 Compose 通过服务级 `env_file` 将 `.env.docker` 中已启用的配置注入 API 容器；保持注释的非必填项不会进入容器，由 `config/` 中的代码默认值接管。需要覆盖可选配置时，取消对应注释并修改值即可。列表类型必须使用 JSON 字符串格式，例如：
@@ -182,23 +184,34 @@ JWT_PUBLIC_PATHS="[\"/docs\",\"/health\"]"
 
 如果 PostgreSQL 或 Redis 运行在 Docker 宿主机上，`DB_HOST` / `REDIS_HOST` 可填写 `host.docker.internal`；Compose 已为 Linux Docker Engine 配置对应的 `host-gateway` 映射。远程服务则填写容器网络能够访问的内网域名或 IP，不能填写 `localhost`，因为容器中的 `localhost` 指向 API 容器自身。
 
-### 2. 构建并启动
+### 2. 准备日志目录
 
-```bash
-docker compose --env-file .env.docker up --build -d
-docker compose --env-file .env.docker ps
-```
-
-命令行的 `--env-file` 为 Compose 的端口映射和必填项校验提供变量，服务级 `env_file` 则将同一文件中的应用配置注入容器，两者用途不同。Compose 只启动 API 容器，宿主机对外端口由必填的 `API_PORT` 决定；容器内部固定监听 `8000`，不会创建、停止或删除外部 PostgreSQL/Redis。应用文件日志映射到根目录 `logs/`。
-
-Linux 宿主机首次启动前需要确保日志目录对镜像内 UID `10001` 可写；Windows Docker Desktop 无需额外处理：
+Compose 不会自动创建日志目录，避免 Linux 上自动生成的 root 目录导致镜像内 UID `10001` 无法写入。Linux 宿主机首次启动前执行：
 
 ```bash
 mkdir -p logs
 sudo chown 10001:10001 logs
 ```
 
-### 3. 检查与停止
+Windows Docker Desktop 只需创建目录，无需调整所有者：
+
+```powershell
+New-Item -ItemType Directory -Force logs
+```
+
+### 3. 构建并启动
+
+启动前应确认外部 PostgreSQL 与 Redis 已运行，并且配置的地址、端口和凭据可以从 API 容器网络访问。还应确认当前 Shell 中没有无意保留的 `API_PORT`、`DB_HOST`、`DB_PASSWORD`、`REDIS_HOST` 或 `JWT_SECRET_KEY`，因为 Shell 同名变量的优先级高于 `--env-file`。
+
+```bash
+docker compose --env-file .env.docker config -q
+docker compose --env-file .env.docker up --build -d
+docker compose --env-file .env.docker ps
+```
+
+`config -q` 只校验最终 Compose 配置，不打印展开后的环境变量。命令行的 `--env-file` 为 Compose 的端口映射和必填项校验提供变量，服务级 `env_file` 则将同一文件中的应用配置注入容器，两者用途不同。Compose 只启动 API 容器，宿主机对外端口由必填的 `API_PORT` 决定；容器内部固定监听 `8000`，不会创建、停止或删除外部 PostgreSQL/Redis。应用文件日志映射到根目录 `logs/`。
+
+### 4. 检查与停止
 
 ```bash
 docker compose --env-file .env.docker logs -f api
@@ -208,7 +221,7 @@ docker compose --env-file .env.docker down
 健康检查接口：
 
 ```text
-GET http://localhost:8000/health
+GET http://localhost:<API_PORT>/health
 ```
 
 PostgreSQL 和 Redis 均正常时返回 HTTP 200，任一外部关键依赖不可用时返回 HTTP 503。`docker compose down` 只停止并删除 API 容器，不影响外部 PostgreSQL 和 Redis。
@@ -649,4 +662,3 @@ uv run ty check
 ## License
 
 Apache-2.0
-
