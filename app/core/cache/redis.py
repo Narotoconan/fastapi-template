@@ -7,7 +7,7 @@ import asyncio
 import builtins
 import json
 from collections.abc import Awaitable, Mapping
-from typing import Any, Optional, Protocol, cast
+from typing import Any, Optional, cast
 
 import redis.asyncio as redis
 from redis.asyncio import ConnectionPool, Redis
@@ -42,12 +42,6 @@ def _create_connection_pool(cache_config: CacheSettings) -> ConnectionPool:
         socket_keepalive=True,
         decode_responses=True,
     )
-
-
-class _AsyncHashCommands(Protocol):
-    """收窄 redis-py 同步/异步混合声明中的异步 Hash 命令类型。"""
-
-    def hset(self, name: str, *, mapping: Mapping[str, EncodableT]) -> Awaitable[int]: ...
 
 
 class RedisManager:
@@ -429,8 +423,16 @@ class RedisManager:
             serialized_mapping: Mapping[str, EncodableT] = {
                 key: self._serialize(value) for key, value in mapping.items()
             }
-            hash_commands = cast(_AsyncHashCommands, client)
-            result = await hash_commands.hset(prefixed_name, mapping=serialized_mapping)
+            result = cast(
+                int,
+                await _await_redis_response(
+                    # ty 无法根据 redis-py 的 self 类型重载识别异步客户端，运行时返回值仍由统一适配器处理。
+                    client.hset(  # ty: ignore[no-matching-overload]
+                        prefixed_name,
+                        mapping=serialized_mapping,
+                    )
+                ),
+            )
 
             # 如果设置了过期时间
             if ex is not None:

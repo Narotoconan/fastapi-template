@@ -51,7 +51,7 @@ def _generate_cache_key(
     func: Callable[..., Awaitable[object]], prefix: str, args: tuple[object, ...], kwargs: Mapping[str, object]
 ) -> str:
     """Generate cache key from function name and parameters"""
-    func_name = getattr(func, "__name__", func.__class__.__name__)
+    func_name = getattr(func, "__name__", type(func).__name__)
     key_base = f"{prefix}:{func_name}" if prefix else func_name
     params = json.dumps({"args": args, "kwargs": kwargs}, default=str, sort_keys=True)
     param_hash = hashlib.md5(params.encode()).hexdigest()[:8]
