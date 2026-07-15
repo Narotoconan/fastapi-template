@@ -7,12 +7,16 @@
 
 ## 中间件执行顺序
 
+当前默认未启用 JWT：
+
 ```
-请求进入  →  CORS  →  GZip  →  JWT 鉴权  →  路由处理器
-响应返回  ←  CORS  ←  GZip  ←  JWT 鉴权  ←  路由处理器
+请求进入  →  CORS  →  GZip  →  路由处理器
+响应返回  ←  CORS  ←  GZip  ←  路由处理器
 ```
 
-> **原理说明**：FastAPI/Starlette 中间件采用**栈结构**（LIFO），`add_middleware()` 的调用顺序与实际请求处理顺序**相反**。因此 `register_middlewares()` 的注册顺序为：JWT → GZip → CORS（后注册先处理）。
+启用 JWT 后，请求顺序为 `CORS → GZip → JWT 鉴权 → 路由处理器`。
+
+> **原理说明**：FastAPI/Starlette 中间件采用**栈结构**（LIFO），`add_middleware()` 的调用顺序与实际请求处理顺序**相反**。默认注册顺序为 GZip → CORS；启用 JWT 后为 JWT → GZip → CORS（后注册先处理）。
 
 ---
 
@@ -96,9 +100,9 @@ CORS_ALLOW_ORIGINS=["https://your-frontend.com"]
 基于 `starlette.middleware.base.BaseHTTPMiddleware` 自定义实现，位于**最内层**。
 
 **处理流程**：
-1. 判断请求路径是否在 `JWT_PUBLIC_PATHS` 列表中（前缀匹配），若是则跳过鉴权
+1. 判断请求路径是否与 `JWT_PUBLIC_PATHS` 完全相同或属于其路径段子路径，若是则跳过鉴权
 2. 从请求头 `Authorization: Bearer <token>` 提取 Token
-3. 使用 PyJWT 对 Token 进行解码验证（密钥 + 算法 + 过期时间）
+3. 使用 PyJWT 对 Token 进行解码验证（密钥 + 算法），并要求包含有效的 `exp` 和非空字符串 `sub`
 4. 验证通过后，将 payload 挂载到 `request.state`：
    - `request.state.jwt_payload` — 完整的 JWT payload 字典
    - `request.state.user_id` — payload 中的 `sub` 字段（用户标识）

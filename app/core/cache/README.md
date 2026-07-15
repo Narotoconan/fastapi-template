@@ -282,7 +282,7 @@ async def get_user_info(user_id: int):
 | `exists(*keys)` | 检查存在性 | `await redis.exists('key')` |
 | `expire(key, ex)` | 为已存在的键设置过期时间 | `await redis.expire('key', 3600)` |
 | `ttl(key)` | 获取键的剩余生存时间 | `await redis.ttl('key')` |
-| `clear()` | 清空数据库 | `await redis.clear()` |
+| `clear()` | 分批清理当前项目前缀下的键 | `await redis.clear()` |
 
 ### 批量操作
 
@@ -315,12 +315,18 @@ async def get_user_info(user_id: int):
 | 方法 | 说明 |
 |------|------|
 | `sadd(name, *members, ex)` | 添加成员（支持过期时间） |
-| `smembers(name)` | 获取所有成员 |
+| `smembers(name)` | 以无序列表获取所有成员 |
 | `srem(name, *members)` | 移除成员 |
 
 ## 序列化说明 🔄
 
-模块自动处理 Python 对象和 Redis 字符串的转换：
+模块使用带版本标记的 JSON 协议处理 Python 对象和 Redis 字符串的转换。支持
+`str`、`bool`、`int`、`float`、`None`、`list` 和字符串键的 `dict`；不支持的类型会明确抛出
+`TypeError`，避免静默转换造成类型或数据丢失。升级前未带版本标记的缓存值会按原始字符串返回。
+
+> 升级提示：新旧协议的 Redis Set 成员可能同时存在并形成逻辑重复，且新版 `srem()` 只操作新版编码。
+> 部署本变更时应使用新版 `clear()` 清理当前项目前缀缓存，或确认旧缓存均设置了 TTL 并等待其淘汰；
+> 不要调用 `FLUSHDB`，以免影响共享数据库中的其他项目。
 
 ```python
 # 支持的类型自动序列化
@@ -332,12 +338,11 @@ data = {
     'null': None,
     'list': [1, 2, 3],
     'dict': {'nested': 'value'},
-    'custom': datetime.now()  # 通过 default=str 转换
 }
 
 await redis_manager.set('data', data)
 result = await redis_manager.get('data')
-# 完全相同的数据结构
+# 新写入值会保持完全相同的数据结构和基础类型
 ```
 
 ## 最佳实践 💡
@@ -571,7 +576,7 @@ async def safe_cache_get(key: str, default=None):
 ```
 日志: JSON serialization failed
 原因: 自定义对象无法序列化
-解决: 在对象中定义 __str__ 方法或使用 default=str
+解决: 写入受支持的基础类型，或在业务层先显式转换为字符串、列表或字符串键字典
 ```
 
 ### 心跳检查失败（自动恢复）
@@ -720,8 +725,3 @@ redis>=5.0.0
 ```
 
 自动通过 `pip install redis` 或项目依赖安装。
-
-## License
-
-MIT
-

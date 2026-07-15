@@ -1,7 +1,8 @@
 """
 中间件注册入口
 
-中间件执行顺序（请求进入时）：CORS → GZip → JWT
+当前默认仅注册 CORS 与 GZip，JWT 实现已提供但默认未启用。
+启用 JWT 后，中间件执行顺序（请求进入时）：CORS → GZip → JWT。
 FastAPI/Starlette 采用栈结构管理中间件，add_middleware 的调用顺序与实际处理顺序相反：
 最后调用 add_middleware 的中间件位于最外层（最先处理请求）。
 因此注册顺序为：JWT（最内层）→ GZip → CORS（最外层）。
@@ -19,8 +20,8 @@ def register_middlewares(app: FastAPI) -> None:
     """
     一键注册所有中间件。
 
-    最终请求处理顺序：CORS → GZip → JWT → 路由处理器
-    注册调用顺序（与处理顺序相反）：
+    当前默认请求处理顺序：CORS → GZip → 路由处理器。
+    如需启用 JWT，应显式导入并恢复下方注册调用；完整注册调用顺序为：
         1. register_jwt_middleware   —— 最内层，紧邻路由
         2. register_gzip_middleware  —— 中间层，负责响应压缩
         3. register_cors_middleware  —— 最外层，处理跨域预检

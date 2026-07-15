@@ -39,7 +39,7 @@ async def get_user_detail_api(user_id: int = Query(..., description="用户ID"))
 
     redis_manager = get_redis_manager()
     data = {"id": user_id, "name": fake.name(), "email": fake.email(), "message": fake.pydict()}
-    log.info(f"查询到用户数据: {data}")
+    log.info(f"查询用户详情成功 | user_id={user_id}")
     await redis_manager.hset(f"{RedisPrefixes.USER_PROFILE}:{data.get('name')}", data, ex=120)
     return ResponseSchema.ok(data=data)
 

@@ -25,6 +25,8 @@ _STATUS_CODE_MAP: dict[int, int] = {
     429: ErrorCode.FAIL,
 }
 
+_INTERNAL_ERROR_MESSAGE = "系统内部错误，请稍后重试"
+
 
 def build_error_response(
     *,
@@ -96,11 +98,18 @@ async def http_exception_handler(_request: Request, exc: Exception) -> JSONRespo
 
     code = _STATUS_CODE_MAP.get(_exc.status_code, ErrorCode.FAIL)
 
-    log.warning(f"HTTPException | status={_exc.status_code} detail={_exc.detail} path={_request.url.path}")
+    if _exc.status_code >= status.HTTP_500_INTERNAL_SERVER_ERROR:
+        log.error(f"HTTPException | status={_exc.status_code} path={_request.url.path}")
+        code = ErrorCode.INTERNAL_ERROR
+        message = _INTERNAL_ERROR_MESSAGE
+    else:
+        log.warning(f"HTTPException | status={_exc.status_code} path={_request.url.path}")
+        message = str(_exc.detail) if _exc.detail else "请求失败"
+
     return build_error_response(
         http_status=_exc.status_code,
         code=code,
-        message=str(_exc.detail) if _exc.detail else "请求失败",
+        message=message,
     )
 
 
@@ -109,11 +118,11 @@ async def unhandled_exception_handler(_request: Request, exc: Exception) -> JSON
     兜底: 未被捕获的异常
     生产环境隐藏堆栈，仅记录必要错误上下文
     """
-    log.error(f"UnhandledException | path={_request.url.path} error_type={type(exc).__name__} error={exc!s}")
+    log.error(f"UnhandledException | path={_request.url.path} error_type={type(exc).__name__}")
     return build_error_response(
         http_status=status.HTTP_500_INTERNAL_SERVER_ERROR,
         code=ErrorCode.INTERNAL_ERROR,
-        message="系统内部错误，请稍后重试",
+        message=_INTERNAL_ERROR_MESSAGE,
     )
 
 

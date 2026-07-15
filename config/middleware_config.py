@@ -5,8 +5,8 @@
 所有字段均可通过环境变量覆盖（Pydantic-Settings 自动读取）。
 """
 
-from pydantic import Field
-from pydantic_settings import BaseSettings
+from pydantic import Field, field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class CORSSettings(BaseSettings):
@@ -34,13 +34,15 @@ class GZipSettings(BaseSettings):
 class JWTSettings(BaseSettings):
     """JWT 鉴权中间件配置"""
 
+    model_config = SettingsConfigDict(hide_input_in_errors=True)
+
     # 签名密钥必须通过环境变量注入，最少 32 个字符
     JWT_SECRET_KEY: str = Field(min_length=32)
     # 签名算法
     JWT_ALGORITHM: str = "HS256"
     # Access Token 有效期（小时），默认 24 小时
     JWT_ACCESS_TOKEN_EXPIRE_HOUR: int = 24
-    # 不需要 JWT 鉴权的公开路径列表（前缀匹配）
+    # 不需要 JWT 鉴权的公开路径列表（精确匹配或路径段子路径匹配）
     JWT_PUBLIC_PATHS: list[str] = [
         "/docs",
         "/redoc",
@@ -50,6 +52,21 @@ class JWTSettings(BaseSettings):
         "/api/auth/login",
         "/api/auth/register",
     ]
+
+    @field_validator("JWT_PUBLIC_PATHS")
+    @classmethod
+    def validate_public_paths(cls, public_paths: list[str]) -> list[str]:
+        """规范化公开路径，并拒绝可能放行全站的配置。"""
+        normalized_paths: list[str] = []
+        for public_path in public_paths:
+            stripped_path = public_path.strip()
+            normalized_path = stripped_path.rstrip("/")
+            if not normalized_path:
+                raise ValueError("JWT 公开路径不能为空或根路径")
+            if not normalized_path.startswith("/"):
+                raise ValueError(f"JWT 公开路径必须以 / 开头: {normalized_path}")
+            normalized_paths.append(normalized_path)
+        return list(dict.fromkeys(normalized_paths))
 
 
 __all__ = ["CORSSettings", "GZipSettings", "JWTSettings"]

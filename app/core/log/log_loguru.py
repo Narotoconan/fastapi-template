@@ -34,6 +34,8 @@ def register() -> loguru.Logger:
         sink=sys.stdout,
         level=level,
         enqueue=True,  # ✅ 异步处理，不阻塞主线程
+        backtrace=False,
+        diagnose=False,
     )
     logger.add(
         sink=f"{path}/app.log",
@@ -41,6 +43,8 @@ def register() -> loguru.Logger:
         rotation=rotation_time,
         retention=retention,
         enqueue=True,  # ✅ 异步处理，不阻塞主线程
+        backtrace=False,
+        diagnose=False,
     )
 
     return logger
