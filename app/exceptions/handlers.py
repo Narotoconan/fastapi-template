@@ -4,9 +4,11 @@
 """
 
 from collections.abc import Mapping
+from datetime import datetime
 from typing import cast
 
 from fastapi import FastAPI, Request, status
+from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -14,6 +16,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from app.core.log import log
 from app.exceptions.errors import BizException, ErrorCode
 from app.exceptions.validation_i18n import translate_validation_error
+from app.schemas.base_schema import format_datetime
 
 # 映射常见 HTTP 状态码到业务错误码
 _STATUS_CODE_MAP: dict[int, int] = {
@@ -34,6 +37,7 @@ def build_error_response(
     code: int,
     message: str,
     result: Mapping[str, object] | None = None,
+    headers: Mapping[str, str] | None = None,
 ) -> JSONResponse:
     """
     构建统一错误 JSON 响应。
@@ -42,13 +46,18 @@ def build_error_response(
     注意：中间件层无法直接抛出 BizException 等业务异常来触发 ExceptionMiddleware，
     因此需要主动调用本函数构造响应并返回。
     """
-    return JSONResponse(
-        status_code=http_status,
-        content={
+    content = jsonable_encoder(
+        {
             "code": code,
             "message": message,
-            "result": result or {},
+            "result": {} if result is None else result,
         },
+        custom_encoder={datetime: format_datetime},
+    )
+    return JSONResponse(
+        status_code=http_status,
+        content=content,
+        headers=headers,
     )
 
 
@@ -110,6 +119,7 @@ async def http_exception_handler(_request: Request, exc: Exception) -> JSONRespo
         http_status=_exc.status_code,
         code=code,
         message=message,
+        headers=_exc.headers,
     )
 
 

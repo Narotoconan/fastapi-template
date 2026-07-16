@@ -7,7 +7,8 @@ from pydantic import ConfigDict
 class BaseSchema(PydanticBaseModel):
     model_config = ConfigDict(
         use_enum_values=True,
-        json_encoders={
-            datetime: lambda x: x.strftime("%Y-%m-%d %H:%M:%S"),
-        },
+        json_encoders={datetime: lambda x: x.strftime("%Y-%m-%d %H:%M:%S")},
     )
+
+
+__all__ = ["BaseSchema"]

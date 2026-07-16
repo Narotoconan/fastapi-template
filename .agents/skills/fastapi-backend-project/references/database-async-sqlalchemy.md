@@ -17,7 +17,8 @@
 ## 项目会话模型
 
 - 路由通过 `DBSessionDep = Annotated[AsyncSession, Depends(get_db)]` 获取请求级 `AsyncSession`。
-- `app/dependencies/db.py` 会在请求异常时 `rollback()`，并在 finally 中 `close()` 与 `AsyncSessionLocal.remove()`。
+- `AsyncSessionLocal` 是普通 `async_sessionmaker`；`app/dependencies/db.py` 为每个请求创建并关闭独立会话，不维护任务级 scoped registry。
+- 请求异常或取消时会尝试 `rollback()`；回滚或关闭自身失败会记录错误类型，但不能覆盖原始请求异常。
 - service 接收已解析的 `AsyncSession`，不使用 `Depends`。
 - repository 方法显式接收 `session: AsyncSession`，不创建 session，不提交事务。
 - 不要在异步调用链中使用同步 `Session`、`session.query(...)` 或阻塞 I/O。
@@ -32,6 +33,13 @@ from app.dependencies.db import get_db
 
 DBSessionDep = Annotated[AsyncSession, Depends(get_db)]
 ```
+
+## 北京时间契约
+
+- 业务时间统一使用北京时间语义，PostgreSQL 会话固定为 `Asia/Shanghai`。
+- ORM 时间列使用 `DateTime(timezone=False)`，默认值、数据库默认约束和更新值均使用数据库 `now()`。
+- API Schema 的明确日期时间字段使用 `%Y-%m-%d %H:%M:%S` 格式输出；业务响应应使用继承 `BaseSchema` 的明确响应模型。
+- 修改 ORM 不会自动迁移已有数据库列；将带时区列改为无时区列时，必须通过迁移按 `Asia/Shanghai` 保留北京时间的墙上时间。
 
 ## Repository 查询模式
 

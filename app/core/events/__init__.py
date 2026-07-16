@@ -12,11 +12,11 @@ from .startup import startup
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-    """管理应用生命周期，并确保退出时释放数据库和缓存资源。"""
-    await startup()
-    settings = get_settings()
-    log.info(f"✅ 应用启动完成 | name={settings.app.APP_NAME} | version={settings.app.APP_VERSION}")
+    """管理应用生命周期，启动中途失败时也执行统一资源清理。"""
     try:
+        await startup()
+        settings = get_settings()
+        log.info(f"✅ 应用启动完成 | name={settings.app.APP_NAME} | version={settings.app.APP_VERSION}")
         yield
     finally:
         await shutdown()

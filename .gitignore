@@ -3,9 +3,9 @@ venv
 storage/logs/*
 */**/__pycache__
 .env
-.env.dev
-.env.prod
-.env.docker
+.env.*
+!.env.example
+!.env.*.example
 logs/*
 __pycache__/
 .pytest_cache/

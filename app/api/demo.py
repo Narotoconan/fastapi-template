@@ -32,15 +32,20 @@ async def get_user_list_api(
 
 
 @router_demo.get("/detail", summary="用户详情")
-async def get_user_detail_api(user_id: int = Query(..., description="用户ID")):
+async def get_user_detail_api(user_id: int = Query(..., description="用户ID")) -> ResponseSchema:
     """查询单个用户 — 演示普通成功响应 & NotFoundException"""
     if user_id <= 0:
         raise NotFoundException(message=f"用户 {user_id} 不存在")
 
     redis_manager = get_redis_manager()
-    data = {"id": user_id, "name": fake.name(), "email": fake.email(), "message": fake.pydict()}
+    data = {
+        "id": user_id,
+        "name": fake.name(),
+        "email": fake.email(),
+        "message": {"text": fake.sentence(), "active": True},
+    }
     log.info(f"查询用户详情成功 | user_id={user_id}")
-    await redis_manager.hset(f"{RedisPrefixes.USER_PROFILE}:{data.get('name')}", data, ex=120)
+    await redis_manager.hset(f"{RedisPrefixes.USER_PROFILE}:{user_id}", data, ex=120)
     return ResponseSchema.ok(data=data)
 
 

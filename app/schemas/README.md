@@ -3,7 +3,7 @@
 ## 快速上手
 
 ```python
-from app.schemas.response import ResponseSchema, PageResponseSchema, PageParams
+from app.schemas.response import PageResponseSchema, ResponseSchema
 ```
 
 ---
@@ -44,11 +44,11 @@ async def get_list(
     ...
 ```
 
-> 也可以用 `PageParams` 作为 Body 接收分页参数：
+> 推荐使用项目统一的 `PageDep` 接收 Query 分页参数：
 > ```python
-> from app.schemas.response import PageParams
-> async def get_list(params: PageParams): ...
-> # params.page / params.page_size / params.offset / params.limit
+> from app.dependencies.pagination import PageDep
+> async def get_list(pagination: PageDep): ...
+> # pagination.page / pagination.page_size / pagination.offset / pagination.limit
 > ```
 
 ### 返回分页数据
@@ -60,7 +60,7 @@ items = [{"id": 1, "name": "张三"}, {"id": 2, "name": "李四"}]
 total = 56  # 总记录数（从数据库 COUNT 查询获得）
 
 return PageResponseSchema.ok(
-    items=items,
+    data=items,
     total=total,
     page=page,
     page_size=page_size,
@@ -131,7 +131,7 @@ async def download_file():
   "code": 0,
   "message": "success",
   "result": {
-    "items": [...],       # 当前页数据列表
+    "data": [...],        # 当前页数据列表
     "pagination": {
       "page":        1,   # 当前页码
       "page_size":  10,   # 每页条数
@@ -157,6 +157,5 @@ raise NotFoundException(message="订单不存在")
 # → {"code": 3001, "message": "订单不存在", "result": {}}
 
 raise BizException(ErrorCode.FAIL, message="库存不足")
-# → {"code": -1, "message": "库存不足", "result": {}}
+# → {"code": 99999, "message": "库存不足", "result": {}}
 ```
-

@@ -1,4 +1,7 @@
+import asyncio
+
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.log import log
 from config.settings import get_settings
@@ -24,15 +27,31 @@ _pgsql = AsyncPgSql(
 AsyncSessionLocal = _pgsql.AsyncSessionLocal
 
 
+async def close_db_session(session: AsyncSession) -> None:
+    """屏蔽调用方取消并让会话关闭任务继续完成。"""
+    close_task = asyncio.create_task(session.close())
+    await asyncio.shield(close_task)
+
+
 async def db_health_check() -> bool:
     """执行轻量查询检查数据库连接是否可用。"""
     session = AsyncSessionLocal()
     try:
         query_result = await session.execute(text("SELECT 1"))
-        return query_result.scalar_one() == 1
-    finally:
-        await session.close()
-        await AsyncSessionLocal.remove()
+        is_healthy = query_result.scalar_one() == 1
+    except BaseException as query_error:
+        try:
+            await close_db_session(session)
+        except BaseException as close_error:
+            log.error(
+                "数据库健康检查会话关闭失败"
+                f" | query_error_type={type(query_error).__name__}"
+                f" | close_error_type={type(close_error).__name__}"
+            )
+        raise
+    else:
+        await close_db_session(session)
+        return is_healthy
 
 
 async def db_first_connection() -> None:
@@ -48,4 +67,11 @@ async def db_disconnect() -> None:
     log.info("✅ 数据库 已断开连接")
 
 
-__all__ = ["AsyncSessionLocal", "Base", "db_disconnect", "db_first_connection", "db_health_check"]
+__all__ = [
+    "AsyncSessionLocal",
+    "Base",
+    "close_db_session",
+    "db_disconnect",
+    "db_first_connection",
+    "db_health_check",
+]

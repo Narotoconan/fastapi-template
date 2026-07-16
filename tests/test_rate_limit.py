@@ -89,14 +89,16 @@ def test_explicit_limit_returns_unified_429_response() -> None:
     }
 
 
-def test_unmarked_endpoint_is_not_limited_and_custom_limit_overrides_default() -> None:
-    """未标注接口不受影响，自定义额度覆盖项目默认额度。"""
+def test_unmarked_endpoint_is_not_limited_and_default_limit_is_enforced() -> None:
+    """未标注接口不受影响，默认额度会在超限时真实返回 429。"""
     rate_limit_module.limiter.enabled = True
     client = create_test_client()
 
     assert get_settings().rate_limit.RATE_LIMIT_DEFAULT == "100/minute"
     assert [client.get("/limited").status_code for _ in range(3)] == [200, 200, 429]
-    assert [client.get("/default-limited").status_code for _ in range(3)] == [200, 200, 200]
+    default_limit_statuses = [client.get("/default-limited").status_code for _ in range(101)]
+    assert default_limit_statuses[:100] == [200] * 100
+    assert default_limit_statuses[100] == 429
     assert [client.get("/unlimited").status_code for _ in range(5)] == [200, 200, 200, 200, 200]
 
 

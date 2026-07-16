@@ -7,7 +7,7 @@
 
 ## 中间件执行顺序
 
-当前默认未启用 JWT：
+当前默认未启用 JWT。CORS 包裹包含 `ServerErrorMiddleware` 在内的完整 FastAPI 内部栈：
 
 ```
 请求进入  →  CORS  →  GZip  →  路由处理器
@@ -16,7 +16,7 @@
 
 启用 JWT 后，请求顺序为 `CORS → GZip → JWT 鉴权 → 路由处理器`。
 
-> **原理说明**：FastAPI/Starlette 中间件采用**栈结构**（LIFO），`add_middleware()` 的调用顺序与实际请求处理顺序**相反**。默认注册顺序为 GZip → CORS；启用 JWT 后为 JWT → GZip → CORS（后注册先处理）。
+> **原理说明**：Starlette 的 `ServerErrorMiddleware` 默认位于所有 `add_middleware()` 用户中间件之外。若 CORS 也通过 `add_middleware()` 注册，未处理异常生成的 500 响应不会带跨域头。本项目延迟装饰中间件栈构建函数，在首次 ASGI 调用时用唯一一层 `CORSMiddleware` 包裹完整内部栈；应用启动前后续注册的路由、中间件和异常处理器都会生效，GZip/JWT 等内部用户中间件仍遵循 LIFO 规则。
 
 ---
 
@@ -148,7 +148,7 @@ from config.settings import get_settings
 def create_access_token(user_id: str) -> str:
     """生成 JWT Access Token"""
     jwt_settings = get_settings().jwt
-    expire = datetime.now(timezone.utc) + timedelta(minutes=jwt_settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES)
+    expire = datetime.now(timezone.utc) + timedelta(hours=jwt_settings.JWT_ACCESS_TOKEN_EXPIRE_HOUR)
     payload = {
         "sub": user_id,
         "exp": expire,
@@ -165,7 +165,7 @@ def create_access_token(user_id: str) -> str:
 
 1. 在 `app/middlewares/` 下新建 `your_middleware.py`
 2. 实现 `register_your_middleware(app: FastAPI) -> None` 函数
-3. 在 `app/middlewares/__init__.py` 的 `register_middlewares()` 中按所需层级调用
+3. 在 `app/middlewares/__init__.py` 的 `register_middlewares()` 中按所需层级调用；保持 `register_cors_middleware(app)` 为该函数最后一步，由它延迟包裹完整内部栈
 
 ```python
 # __init__.py
@@ -173,6 +173,6 @@ def register_middlewares(app: FastAPI) -> None:
     register_jwt_middleware(app)        # 最内层
     register_your_middleware(app)       # 新增中间件（示例位置）
     register_gzip_middleware(app)
-    register_cors_middleware(app)       # 最外层
+    register_cors_middleware(app)       # 唯一的全局最外层
 ```
 

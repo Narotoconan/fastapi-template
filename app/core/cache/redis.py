@@ -42,6 +42,7 @@ def _create_connection_pool(cache_config: CacheSettings) -> ConnectionPool:
         password=cache_config.REDIS_PASSWORD,
         max_connections=cache_config.REDIS_MAX_CONNECTIONS,
         socket_connect_timeout=cache_config.REDIS_TIMEOUT,
+        socket_timeout=cache_config.REDIS_COMMAND_TIMEOUT,
         socket_keepalive=True,
         decode_responses=True,
     )
@@ -59,11 +60,13 @@ class RedisManager:
     _redis_prefix: str | None = None  # Redis 键前缀
     _reconnect_count: int = 0  # 重连计数
     _max_reconnect_attempts: int = 5  # 最大重连次数
+    _connection_lock: asyncio.Lock
 
     def __new__(cls) -> "RedisManager":
         instance = cls._instance
         if instance is None:
             instance = super().__new__(cls)
+            instance._connection_lock = asyncio.Lock()
             cls._instance = instance
         return instance
 
@@ -104,43 +107,34 @@ class RedisManager:
         return cast(int, await _await_redis_response(client.delete(*keys)))
 
     async def connect(self) -> None:
-        """初始化 Redis 连接池并启动心跳检查"""
-        if self._client is not None:
-            log.debug("Redis 已连接，跳过重复连接")
-            return
+        """串行初始化 Redis，并在 PING 成功后发布连接状态。"""
+        async with self._connection_lock:
+            if self._client is not None:
+                log.debug("Redis 已连接，跳过重复连接")
+                return
 
-        settings = get_settings()
-        cache_config = settings.cache
-
-        try:
-            # 前置配置检查
+            cache_config = get_settings().cache
             log.debug(f"[Redis] 连接前配置检查 - 主机:{cache_config.REDIS_HOST}, 端口:{cache_config.REDIS_PORT}")
-
-            # 验证基础配置
-            if not cache_config.REDIS_HOST or cache_config.REDIS_PORT <= 0:
-                raise ValueError("Redis 主机地址或端口配置错误")
-
-            if cache_config.REDIS_MAX_CONNECTIONS <= 0:
-                raise ValueError(f"Redis 连接池大小必须大于 0，当前值: {cache_config.REDIS_MAX_CONNECTIONS}")
-
-            if cache_config.REDIS_TIMEOUT <= 0:
-                raise ValueError(f"Redis 连接超时时间必须大于 0，当前值: {cache_config.REDIS_TIMEOUT}")
-
-            if not cache_config.REDIS_PREFIX or not isinstance(cache_config.REDIS_PREFIX, str):
-                raise ValueError(f"REDIS_PREFIX 必须是非空字符串，当前值: {cache_config.REDIS_PREFIX}")
-
-            # 创建连接池
             log.debug(f"[Redis] 创建连接池 - 最大连接数:{cache_config.REDIS_MAX_CONNECTIONS}")
-            pool = _create_connection_pool(cache_config)
-            self._pool = pool
 
-            # 创建 Redis 客户端
+            pool = _create_connection_pool(cache_config)
             log.debug("开始建立 Redis 客户端连接...")
             client = redis.Redis(connection_pool=pool)
-            self._client = client
 
-            # 测试连接
-            await _await_redis_response(client.ping())
+            try:
+                await _await_redis_response(client.ping())
+            except asyncio.CancelledError:
+                await self._close_connection_resources(client, pool)
+                raise
+            except Exception as exc:
+                log.error(f"❌ Redis 连接失败: {exc}")
+                await self._close_connection_resources(client, pool)
+                raise
+
+            self._pool = pool
+            self._client = client
+            self._reconnect_count = 0
+            self._start_heartbeat()
             log.info(
                 f"✅ Redis 连接成功 - "
                 f"主机:{cache_config.REDIS_HOST} | "
@@ -148,45 +142,39 @@ class RedisManager:
                 f"数据库:{cache_config.REDIS_DB}"
             )
 
-            # 启动心跳检查任务
-            self._reconnect_count = 0
-            self._start_heartbeat()
-
-        except Exception as e:
-            log.error(f"❌ Redis 连接失败: {e}")
-            await self._close_connections()
-            raise
-
     async def disconnect(self) -> None:
         """关闭 Redis 连接并停止心跳检查"""
         log.debug("开始关闭 Redis 连接...")
 
-        # 停止心跳检查
-        self._stop_heartbeat()
-
-        await self._close_connections()
+        async with self._connection_lock:
+            await self._stop_heartbeat()
+            await self._close_connections()
         log.info("✅ Redis 已断开连接")
 
-    async def _close_connections(self) -> None:
-        """关闭 Redis 客户端与连接池，但不改变当前心跳任务状态。"""
-
-        client = self._client
-        self._client = None
+    @staticmethod
+    async def _close_connection_resources(client: Redis | None, pool: ConnectionPool | None) -> None:
+        """独立关闭指定客户端和连接池，确保其中一个失败时仍清理另一个。"""
         if client is not None:
             try:
                 await _await_redis_response(client.close())
                 log.debug("✅ Redis 客户端已关闭")
-            except Exception as e:
-                log.warning(f"⚠️ 关闭 Redis 客户端异常: {e}")
+            except Exception as exc:
+                log.warning(f"⚠️ 关闭 Redis 客户端异常: {exc}")
 
-        pool = self._pool
-        self._pool = None
         if pool is not None:
             try:
                 await _await_redis_response(pool.disconnect())
                 log.debug("✅ Redis 连接池已断开")
-            except Exception as e:
-                log.warning(f"⚠️ Redis 连接池断开异常: {e}")
+            except Exception as exc:
+                log.warning(f"⚠️ Redis 连接池断开异常: {exc}")
+
+    async def _close_connections(self) -> None:
+        """关闭 Redis 客户端与连接池，但不改变当前心跳任务状态。"""
+        client = self._client
+        self._client = None
+        pool = self._pool
+        self._pool = None
+        await self._close_connection_resources(client, pool)
 
     async def ping(self) -> bool:
         """检查当前 Redis 连接是否可用。"""
@@ -195,27 +183,40 @@ class RedisManager:
 
     def _start_heartbeat(self) -> None:
         """启动心跳检查任务"""
-        if self._heartbeat_task is not None:
+        if self._heartbeat_task is not None and not self._heartbeat_task.done():
             log.debug("❤️ 心跳检查已启动，跳过重复启动")
             return
 
         self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
         log.info(f"❤️ Redis 心跳检查已启动 (检查间隔: {self._heartbeat_interval} 秒)")
 
-    def _stop_heartbeat(self) -> None:
-        """停止心跳检查任务"""
+    async def _stop_heartbeat(self) -> None:
+        """取消并等待心跳任务结束，避免连接关闭后任务继续运行。"""
         heartbeat_task = self._heartbeat_task
         if heartbeat_task is None:
             return
 
-        if heartbeat_task is not asyncio.current_task():
-            heartbeat_task.cancel()
-        self._heartbeat_task = None
+        if heartbeat_task is asyncio.current_task():
+            self._heartbeat_task = None
+            log.debug("❤️ Redis 心跳检查已停止")
+            return
+
+        heartbeat_task.cancel()
+        try:
+            await heartbeat_task
+        except asyncio.CancelledError:
+            pass
+        except Exception as exc:
+            log.warning(f"⚠️ Redis 心跳任务退出异常: {exc}")
+        finally:
+            if self._heartbeat_task is heartbeat_task:
+                self._heartbeat_task = None
         log.debug("❤️ Redis 心跳检查已停止")
 
     async def _reconnect(self) -> bool:
         """关闭失效连接并按上限重试，成功时继续复用当前心跳任务。"""
-        await self._close_connections()
+        async with self._connection_lock:
+            await self._close_connections()
 
         while self._reconnect_count < self._max_reconnect_attempts:
             self._reconnect_count += 1
@@ -391,18 +392,15 @@ class RedisManager:
         try:
             client = self._require_client()
             serialized_data = {self._get_prefixed_key(k): self._serialize(v) for k, v in data.items()}
-            result = cast(bool, await _await_redis_response(client.mset(serialized_data)))
+            if ex is None:
+                return cast(bool, await _await_redis_response(client.mset(serialized_data)))
 
-            # 如果设置了过期时间，使用 pipeline 批量发送 expire 命令，避免 N 次网络往返
-            if ex is not None:
-                async with client.pipeline(transaction=False) as pipe:
-                    for prefixed_key in serialized_data:
-                        # await 将命令入队到 pipeline 本地缓冲区，不会立即发送网络请求
-                        # 真正的批量发送发生在 pipe.execute() 时
-                        await pipe.expire(prefixed_key, ex)
-                    await pipe.execute()
-
-            return result
+            async with client.pipeline(transaction=True) as pipe:
+                pipe.mset(serialized_data)
+                for prefixed_key in serialized_data:
+                    pipe.expire(prefixed_key, ex)
+                pipeline_results = await pipe.execute()
+            return cast(bool, pipeline_results[0])
         except Exception as e:
             log.error(f"❌ 批量设置失败: {e}")
             raise
@@ -447,22 +445,26 @@ class RedisManager:
             serialized_mapping: Mapping[str, EncodableT] = {
                 key: self._serialize(value) for key, value in mapping.items()
             }
-            result = cast(
-                int,
-                await _await_redis_response(
-                    # ty 无法根据 redis-py 的 self 类型重载识别异步客户端，运行时返回值仍由统一适配器处理。
-                    client.hset(  # ty: ignore[no-matching-overload]
-                        prefixed_name,
-                        mapping=serialized_mapping,
-                    )
-                ),
-            )
+            if ex is None:
+                return cast(
+                    int,
+                    await _await_redis_response(
+                        # ty 无法根据 redis-py 的 self 类型重载识别异步客户端，运行时返回值仍由统一适配器处理。
+                        client.hset(  # ty: ignore[no-matching-overload]
+                            prefixed_name,
+                            mapping=serialized_mapping,
+                        )
+                    ),
+                )
 
-            # 如果设置了过期时间
-            if ex is not None:
-                await _await_redis_response(client.expire(prefixed_name, ex))
-
-            return result
+            async with client.pipeline(transaction=True) as pipe:
+                pipe.hset(  # ty: ignore[no-matching-overload]
+                    prefixed_name,
+                    mapping=serialized_mapping,
+                )
+                pipe.expire(prefixed_name, ex)
+                pipeline_results = await pipe.execute()
+            return cast(int, pipeline_results[0])
         except Exception as e:
             log.error(f"❌ 哈希设置失败 ({name}): {e}")
             raise
@@ -523,13 +525,14 @@ class RedisManager:
             client = self._require_client()
             prefixed_name = self._get_prefixed_key(name)
             serialized_values = [self._serialize(v) for v in values]
-            result = cast(int, await _await_redis_response(client.lpush(prefixed_name, *serialized_values)))
+            if ex is None:
+                return cast(int, await _await_redis_response(client.lpush(prefixed_name, *serialized_values)))
 
-            # 如果设置了过期时间
-            if ex is not None:
-                await _await_redis_response(client.expire(prefixed_name, ex))
-
-            return result
+            async with client.pipeline(transaction=True) as pipe:
+                pipe.lpush(prefixed_name, *serialized_values)
+                pipe.expire(prefixed_name, ex)
+                pipeline_results = await pipe.execute()
+            return cast(int, pipeline_results[0])
         except Exception as e:
             log.error(f"❌ 列表左推失败 ({name}): {e}")
             raise
@@ -546,13 +549,14 @@ class RedisManager:
             client = self._require_client()
             prefixed_name = self._get_prefixed_key(name)
             serialized_values = [self._serialize(v) for v in values]
-            result = cast(int, await _await_redis_response(client.rpush(prefixed_name, *serialized_values)))
+            if ex is None:
+                return cast(int, await _await_redis_response(client.rpush(prefixed_name, *serialized_values)))
 
-            # 如果设置了过期时间
-            if ex is not None:
-                await _await_redis_response(client.expire(prefixed_name, ex))
-
-            return result
+            async with client.pipeline(transaction=True) as pipe:
+                pipe.rpush(prefixed_name, *serialized_values)
+                pipe.expire(prefixed_name, ex)
+                pipeline_results = await pipe.execute()
+            return cast(int, pipeline_results[0])
         except Exception as e:
             log.error(f"❌ 列表右推失败 ({name}): {e}")
             raise
@@ -616,13 +620,14 @@ class RedisManager:
             client = self._require_client()
             prefixed_name = self._get_prefixed_key(name)
             serialized_members = [self._serialize(m) for m in members]
-            result = cast(int, await _await_redis_response(client.sadd(prefixed_name, *serialized_members)))
+            if ex is None:
+                return cast(int, await _await_redis_response(client.sadd(prefixed_name, *serialized_members)))
 
-            # 如果设置了过期时间
-            if ex is not None:
-                await _await_redis_response(client.expire(prefixed_name, ex))
-
-            return result
+            async with client.pipeline(transaction=True) as pipe:
+                pipe.sadd(prefixed_name, *serialized_members)
+                pipe.expire(prefixed_name, ex)
+                pipeline_results = await pipe.execute()
+            return cast(int, pipeline_results[0])
         except Exception as e:
             log.error(f"❌ 集合添加失败 ({name}): {e}")
             raise

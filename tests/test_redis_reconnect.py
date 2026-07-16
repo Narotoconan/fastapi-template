@@ -5,7 +5,8 @@ import pytest
 from redis.asyncio import Redis
 
 import app.core.cache.redis as redis_module
-from app.core.cache.redis import RedisManager
+from app.core.cache.redis import RedisManager, _create_connection_pool
+from config.cache_config import CacheSettings
 
 
 @pytest.fixture
@@ -15,6 +16,7 @@ def redis_manager(monkeypatch: pytest.MonkeyPatch) -> RedisManager:
     monkeypatch.setattr(manager, "_pool", None)
     monkeypatch.setattr(manager, "_client", None)
     monkeypatch.setattr(manager, "_heartbeat_task", None)
+    monkeypatch.setattr(manager, "_connection_lock", asyncio.Lock())
     monkeypatch.setattr(manager, "_heartbeat_interval", 0)
     monkeypatch.setattr(manager, "_reconnect_count", 0)
     monkeypatch.setattr(manager, "_reconnect_interval", 0)
@@ -24,6 +26,137 @@ def redis_manager(monkeypatch: pytest.MonkeyPatch) -> RedisManager:
     monkeypatch.setattr(redis_module.log, "warning", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(redis_module.log, "error", lambda *_args, **_kwargs: None)
     return manager
+
+
+def test_connection_pool_uses_separate_connect_and_command_timeouts() -> None:
+    """连接建立和命令读写应分别使用对应的超时配置。"""
+    cache_settings = CacheSettings(REDIS_TIMEOUT=2.5, REDIS_COMMAND_TIMEOUT=4.5)
+
+    pool = _create_connection_pool(cache_settings)
+
+    assert pool.connection_kwargs["socket_connect_timeout"] == 2.5
+    assert pool.connection_kwargs["socket_timeout"] == 4.5
+
+
+def test_connect_publishes_client_only_after_ping_and_serializes_concurrent_calls(
+    redis_manager: RedisManager,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """并发连接只能初始化一次，PING 完成前不得暴露未验证的客户端。"""
+
+    class FakePool:
+        disconnected = False
+
+        async def disconnect(self) -> None:
+            self.disconnected = True
+
+    class BlockingRedisClient:
+        def __init__(self) -> None:
+            self.ping_started = asyncio.Event()
+            self.release_ping = asyncio.Event()
+            self.closed = False
+
+        async def ping(self) -> bool:
+            self.ping_started.set()
+            await self.release_ping.wait()
+            return True
+
+        async def close(self) -> None:
+            self.closed = True
+
+    pool = FakePool()
+    client = BlockingRedisClient()
+    client_create_count = 0
+
+    def create_client(*, connection_pool: object) -> BlockingRedisClient:
+        nonlocal client_create_count
+        assert connection_pool is pool
+        client_create_count += 1
+        return client
+
+    monkeypatch.setattr(redis_module, "_create_connection_pool", lambda _settings: pool)
+    monkeypatch.setattr(redis_module.redis, "Redis", create_client)
+
+    async def run_case() -> None:
+        first_connect = asyncio.create_task(redis_manager.connect())
+        second_connect = asyncio.create_task(redis_manager.connect())
+        await client.ping_started.wait()
+
+        assert redis_manager._client is None
+        assert redis_manager._pool is None
+
+        client.release_ping.set()
+        await asyncio.gather(first_connect, second_connect)
+
+        assert redis_manager._client is client
+        assert redis_manager._pool is pool
+        assert client_create_count == 1
+        await redis_manager.disconnect()
+
+    asyncio.run(run_case())
+    assert client.closed is True
+    assert pool.disconnected is True
+
+
+def test_failed_ping_cleans_local_resources_without_publishing_state(
+    redis_manager: RedisManager,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """PING 失败时应清理局部连接，且管理器始终保持未连接状态。"""
+
+    class FakePool:
+        disconnected = False
+
+        async def disconnect(self) -> None:
+            self.disconnected = True
+
+    class FailingRedisClient:
+        closed = False
+
+        async def ping(self) -> bool:
+            raise ConnectionError("模拟 Redis 不可达")
+
+        async def close(self) -> None:
+            self.closed = True
+
+    pool = FakePool()
+    client = FailingRedisClient()
+    monkeypatch.setattr(redis_module, "_create_connection_pool", lambda _settings: pool)
+    monkeypatch.setattr(redis_module.redis, "Redis", lambda **_kwargs: client)
+
+    with pytest.raises(ConnectionError, match="模拟 Redis 不可达"):
+        asyncio.run(redis_manager.connect())
+
+    assert redis_manager._client is None
+    assert redis_manager._pool is None
+    assert client.closed is True
+    assert pool.disconnected is True
+
+
+def test_disconnect_waits_for_heartbeat_cancellation(redis_manager: RedisManager) -> None:
+    """disconnect 返回前必须等待心跳任务的 finally 清理完成。"""
+
+    async def run_case() -> None:
+        heartbeat_finished = asyncio.Event()
+
+        async def heartbeat() -> None:
+            try:
+                await asyncio.Event().wait()
+            finally:
+                await asyncio.sleep(0)
+                heartbeat_finished.set()
+
+        heartbeat_task = asyncio.create_task(heartbeat())
+        redis_manager._heartbeat_task = heartbeat_task
+        await asyncio.sleep(0)
+
+        await redis_manager.disconnect()
+
+        assert heartbeat_task.done()
+        assert heartbeat_finished.is_set()
+        assert redis_manager._heartbeat_task is None
+
+    asyncio.run(run_case())
 
 
 def test_disconnect_does_not_cancel_current_heartbeat_task(redis_manager: RedisManager) -> None:

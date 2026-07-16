@@ -1,17 +1,16 @@
-from asyncio import current_task
-
 from sqlalchemy.engine import URL
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
-    async_scoped_session,
     async_sessionmaker,
     create_async_engine,
 )
 from sqlalchemy.orm import DeclarativeBase
 
 from app.core.log import log
+
+DATABASE_TIMEZONE = "Asia/Shanghai"
 
 
 class Base(DeclarativeBase):
@@ -56,7 +55,7 @@ class AsyncPgSql:
         self.__CONNECT_TIMEOUT = connect_timeout
 
         self.__engine: AsyncEngine = self.__create_engine()
-        self.AsyncSessionLocal: async_scoped_session[AsyncSession] = self.__create_session()
+        self.AsyncSessionLocal: async_sessionmaker[AsyncSession] = self.__create_session()
         self.Base = Base
 
     def __create_engine(self) -> AsyncEngine:
@@ -72,20 +71,20 @@ class AsyncPgSql:
                 connect_args={
                     "command_timeout": self.__COMMAND_TIMEOUT,
                     "timeout": self.__CONNECT_TIMEOUT,
+                    "server_settings": {"timezone": DATABASE_TIMEZONE},
                 },
             )
         except SQLAlchemyError as e:
             log.error("数据库引擎创建失败！")
             raise e
 
-    def __create_session(self) -> async_scoped_session[AsyncSession]:
-        _async_session = async_sessionmaker(
+    def __create_session(self) -> async_sessionmaker[AsyncSession]:
+        return async_sessionmaker(
             bind=self.__engine, class_=AsyncSession, expire_on_commit=False, autoflush=True, autocommit=False
         )
-        return async_scoped_session(session_factory=_async_session, scopefunc=current_task)
 
     async def disconnect(self) -> None:
         await self.__engine.dispose()
 
 
-__all__ = ["AsyncPgSql", "Base", "build_database_url"]
+__all__ = ["DATABASE_TIMEZONE", "AsyncPgSql", "Base", "build_database_url"]

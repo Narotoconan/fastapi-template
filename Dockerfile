@@ -28,10 +28,11 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # 最终镜像不包含 uv、构建缓存和编译工具，只保留运行所需文件。
 FROM python:3.12-slim-bookworm AS runtime
 
-# 默认使用复制来的虚拟环境；运行期禁止写入新的 .pyc，并让容器日志立即输出到 stdout/stderr。
+# 默认使用复制来的虚拟环境；运行期禁止写入新的 .pyc，让容器日志立即输出，并固定使用北京时间。
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    TZ=Asia/Shanghai
 
 # 固定非 root UID/GID，便于宿主机为 logs 绑定目录预先配置一致的文件权限；nologin 禁止交互式登录。
 RUN groupadd --gid 10001 app \
@@ -58,8 +59,9 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
     CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
 
-# SIGTERM 可让 Uvicorn 执行 lifespan 清理逻辑，配合 Compose 的 stop_grace_period 完成优雅退出。
+# SIGTERM 可让 Uvicorn 执行 lifespan 清理逻辑；默认停止预算为：
+# DB 单条命令 60 秒 < Uvicorn 优雅关闭 70 秒 < Compose 强制停止 90 秒。
 STOPSIGNAL SIGTERM
 
 # 容器内监听所有网卡，宿主机暴露范围由 Compose 端口映射决定。
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--timeout-graceful-shutdown", "70"]
