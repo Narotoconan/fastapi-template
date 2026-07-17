@@ -39,6 +39,12 @@ class _LazyLogger:
     def debug(self, msg: str, *args: Any, **kwargs: Any) -> None:
         self._get().debug(msg, *args, **kwargs)
 
+    async def complete(self) -> None:
+        """等待 Loguru 队列及异步 sink 完成，未初始化时安全返回。"""
+        logger = self._logger
+        if logger is not None:
+            await logger.complete()
+
 
 log = _LazyLogger()
 
@@ -48,4 +54,9 @@ def register_log() -> None:
     log.initialize()
 
 
-__all__ = ["log", "register_log"]
+async def complete_log() -> None:
+    """排空全局日志队列，应在其他应用资源清理完成后调用。"""
+    await log.complete()
+
+
+__all__ = ["complete_log", "log", "register_log"]

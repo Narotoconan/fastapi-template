@@ -120,6 +120,18 @@ class ParamsException(BizException):
         super().__init__(ErrorCode.PARAMS_INVALID, message=message, http_status=422)
 
 
+class ServiceUnavailableException(BizException):
+    """关键依赖不可用异常。"""
+
+    def __init__(
+        self,
+        *,
+        message: str = "服务暂不可用，请稍后重试",
+        result: Mapping[str, object] | None = None,
+    ) -> None:
+        super().__init__(ErrorCode.INTERNAL_ERROR, message=message, http_status=503, result=result)
+
+
 __all__ = [
     "AuthException",
     "BizException",
@@ -127,5 +139,6 @@ __all__ = [
     "ForbiddenException",
     "NotFoundException",
     "ParamsException",
+    "ServiceUnavailableException",
     "get_error_message",
 ]

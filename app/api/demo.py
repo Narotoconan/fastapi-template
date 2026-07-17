@@ -1,5 +1,5 @@
 import io
-from typing import Annotated
+from typing import Annotated, Any
 
 from faker import Faker
 from fastapi import APIRouter, Query, Request
@@ -10,8 +10,8 @@ from app.core.log import log
 from app.core.rate_limit import rate_limit
 from app.dependencies.pagination import PageDep
 from app.exceptions import BizException, ErrorCode, NotFoundException
+from app.schemas.demo_schema import UserSearch, UserSearchResponse
 from app.schemas.response import PageResponseSchema, ResponseSchema
-from app.schemas.user_schema import UserSearch
 
 router_demo = APIRouter(prefix="/demo", tags=["demo演示"])
 fake = Faker("zh_CN")
@@ -22,25 +22,30 @@ fake = Faker("zh_CN")
 async def get_user_list_api(
     request: Request,
     pagination: PageDep,
-) -> PageResponseSchema[dict[str, str]]:
+) -> PageResponseSchema[UserSearchResponse]:
     """分页查询用户列表 — 演示分页响应"""
     # 模拟数据
     total = 56
-    datas = [{"name": fake.name(), "email": fake.email()} for _ in range(pagination.page_size)]
+    datas = [{"name": fake.name(), "email": fake.email(), "date": fake.date_time()} for _ in range(pagination.page_size)]
 
     return PageResponseSchema.ok(data=datas, total=total, page=pagination.page, page_size=pagination.page_size)
 
 
 @router_demo.get("/detail", summary="用户详情")
-async def get_user_detail_api(user_id: int = Query(..., description="用户ID")):
+async def get_user_detail_api(user_id: int = Query(..., description="用户ID")) -> ResponseSchema:
     """查询单个用户 — 演示普通成功响应 & NotFoundException"""
     if user_id <= 0:
         raise NotFoundException(message=f"用户 {user_id} 不存在")
 
     redis_manager = get_redis_manager()
-    data = {"id": user_id, "name": fake.name(), "email": fake.email(), "message": fake.pydict()}
-    log.info(f"查询到用户数据: {data}")
-    await redis_manager.hset(f"{RedisPrefixes.USER_PROFILE}:{data.get('name')}", data, ex=120)
+    data = {
+        "id": user_id,
+        "name": fake.name(),
+        "email": fake.email(),
+        "message": {"text": fake.sentence(), "active": True},
+    }
+    log.info(f"查询用户详情成功 | user_id={user_id}")
+    await redis_manager.hset(f"{RedisPrefixes.USER_PROFILE}:{user_id}", data, ex=120)
     return ResponseSchema.ok(data=data)
 
 

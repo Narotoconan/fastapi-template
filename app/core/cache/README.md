@@ -17,7 +17,7 @@
 
 ### 1. 环境配置
 
-在 `.env` 文件中配置 Redis 连接参数（可选，已有默认值）：
+通过进程环境变量配置 Redis 连接参数（可选，已有默认值）。配置类不会自动读取根目录 `.env`；如使用该文件，应由 IDE、部署平台或启动脚本先加载：
 
 ```env
 REDIS_HOST=localhost
@@ -26,6 +26,7 @@ REDIS_DB=0
 REDIS_PASSWORD=  # 如果需要认证
 REDIS_MAX_CONNECTIONS=10
 REDIS_TIMEOUT=5
+REDIS_COMMAND_TIMEOUT=5
 ```
 
 ### 2. 自动初始化
@@ -77,22 +78,22 @@ async def shutdown():
 所有的键都会自动添加项目前缀（`REDIS_PREFIX`），用于区分多个项目在同一 Redis 实例中的数据。
 
 ```python
-# REDIS_PREFIX 配置: anda_erp
+# REDIS_PREFIX 配置: template
 # 输入的键
 await redis.set('user:1', {'id': 1, 'name': 'Alice'})
 
 # Redis 中实际存储的键
-# anda_erp:user:1
+# template:user:1
 ```
 
 **前缀规则：**
 - 基于 `REDIS_PREFIX` 配置项（可手动修改）
-- 默认值：`anda_erp`
+- 默认值：`template`
 - 自动与键名用 `:` 拼接
 
 **配置示例：**
 ```env
-# .env 或环境变量
+# 进程环境变量
 REDIS_PREFIX=anda_erp          # 生产环境
 # 或改为
 REDIS_PREFIX=shop_system       # 其他项目
@@ -107,11 +108,11 @@ redis_manager = get_redis_manager()
 
 # 设置缓存（支持 TTL，自动添加项目前缀）
 await redis_manager.set('user:1', {'id': 1, 'name': 'Alice'}, ex=3600)
-# 实际键名: anda_erp:user:1
+# 实际键名: template:user:1
 
 # 获取缓存（自动反序列化）
 user = await redis_manager.get('user:1')
-print(user)  # {'id': 1, 'name': 'Alice'}
+# user == {'id': 1, 'name': 'Alice'}
 
 # 删除缓存
 await redis_manager.delete('user:1')
@@ -190,13 +191,16 @@ await redis_manager.srem('tags', 'redis')
 
 ```python
 from app.core.cache import cache
+from app.schemas.demo_schema import UserResponse
 
 
 @cache(key_prefix="user", ttl=3600)
 async def get_user(user_id: int):
     """获取用户信息，结果缓存 1 小时"""
-    # 模拟数据库查询
-    return await db.users.get(user_id)
+    user = await db.users.get(user_id)
+    if user is None:
+        return None
+    return UserResponse.model_validate(user, from_attributes=True).model_dump(mode="json")
 
 
 # 第一次调用：执行函数并缓存结果
@@ -210,27 +214,57 @@ user = await get_user(1)  # 从缓存读取
 - `key_prefix` - 缓存键前缀（可选，用于区分不同的缓存空间）
 - `ttl` - 过期时间，单位秒（可选，不指定则永不过期）
 
+装饰器会根据函数的 `module + qualname` 以及绑定并补齐默认值后的参数生成 SHA-256 缓存键。
+因此 `get_user(1)` 与 `get_user(user_id=1)` 会命中同一个键，而不同模块中的同名函数不会互相覆盖。
+参数仅支持稳定的基础类型、列表、元组和字符串键字典；不要传入 `Request`、数据库 Session、ORM 对象等运行时对象，
+不支持的类型会直接抛出 `TypeError`，不会隐式调用 `str()`。
+实例方法的 `self` / `cls` 会按接收者类型生成稳定标识，因此仅应装饰不依赖实例可变状态的无状态 Service；
+状态会影响结果时，应将稳定状态显式作为函数参数，或改用手动缓存。
+函数返回值同样必须符合 Redis 的 JSON 序列化协议：基础类型、列表或字符串键字典。ORM 对象应优先通过明确的
+响应 Schema 筛选字段，再用 `model_dump(mode="json")` 转为 JSON-safe 数据；不要直接缓存可能包含密码哈希、
+Token 或未稳定加载关系的完整 ORM 对象。
+
+> 升级提示：新键协议不会命中旧装饰器键。有 TTL 的旧键可等待自然过期；无 TTL 的旧键应按项目 `REDIS_PREFIX`
+> 定向清理，不要对共享 Redis 执行 `FLUSHDB`。
+
 ### 装饰器 vs 手动缓存
 
 **使用装饰器 ✅（推荐）**
+
 ```python
+from app.schemas.demo_schema import UserResponse
+
+
 @cache(key_prefix="user", ttl=3600)
 async def get_user(user_id: int):
-    return await db.users.get(user_id)
+    user = await db.users.get(user_id)
+    if user is None:
+        return None
+    return UserResponse.model_validate(user, from_attributes=True).model_dump(mode="json")
 ```
 
 **手动管理 🎯（复杂场景）**
+
 ```python
+from app.schemas.demo_schema import UserResponse
+
+
 async def get_user(user_id: int):
     redis = get_redis_manager()
-    
-    cached = await redis.get(f'user:{user_id}')
-    if cached:
+
+    cache_miss = object()
+    cached = await redis.get(f'user:{user_id}', default=cache_miss)
+    if cached is not cache_miss:
         return cached
-    
+
     user = await db.users.get(user_id)
-    await redis.set(f'user:{user_id}', user, ex=3600)
-    return user
+    cache_value = (
+        UserResponse.model_validate(user, from_attributes=True).model_dump(mode="json")
+        if user is not None
+        else None
+    )
+    await redis.set(f'user:{user_id}', cache_value, ex=3600)
+    return cache_value
 ```
 
 **何时使用装饰器：**
@@ -242,12 +276,15 @@ async def get_user(user_id: int):
 - 需要复杂的缓存逻辑
 - 数据修改操作（需要清除缓存）
 - 条件性 TTL 设置
+- 高并发热点查询需要 singleflight、分布式锁等防击穿策略
 
 ## 在 API 中的使用 📡
 
 ```python
 from fastapi import APIRouter, Depends
+
 from app.core.cache import get_redis_manager
+from app.schemas.demo_schema import UserResponse
 
 router = APIRouter()
 
@@ -257,17 +294,23 @@ async def get_user_info(user_id: int):
     redis_manager = get_redis_manager()
 
     # 尝试从缓存获取
-    cached = await redis_manager.get(f'user:{user_id}')
-    if cached:
+    cache_miss = object()
+    cached = await redis_manager.get(f'user:{user_id}', default=cache_miss)
+    if cached is not cache_miss:
         return cached
 
     # 缓存未命中，从数据库获取
     user = await db.get_user(user_id)
 
     # 存入缓存（TTL 1 小时）
-    await redis_manager.set(f'user:{user_id}', user, ex=3600)
+    cache_value = (
+        UserResponse.model_validate(user, from_attributes=True).model_dump(mode="json")
+        if user is not None
+        else None
+    )
+    await redis_manager.set(f'user:{user_id}', cache_value, ex=3600)
 
-    return user
+    return cache_value
 ```
 
 ## API 参考 📚
@@ -282,7 +325,7 @@ async def get_user_info(user_id: int):
 | `exists(*keys)` | 检查存在性 | `await redis.exists('key')` |
 | `expire(key, ex)` | 为已存在的键设置过期时间 | `await redis.expire('key', 3600)` |
 | `ttl(key)` | 获取键的剩余生存时间 | `await redis.ttl('key')` |
-| `clear()` | 清空数据库 | `await redis.clear()` |
+| `clear()` | 分批清理当前项目前缀下的键 | `await redis.clear()` |
 
 ### 批量操作
 
@@ -315,12 +358,18 @@ async def get_user_info(user_id: int):
 | 方法 | 说明 |
 |------|------|
 | `sadd(name, *members, ex)` | 添加成员（支持过期时间） |
-| `smembers(name)` | 获取所有成员 |
+| `smembers(name)` | 以无序列表获取所有成员 |
 | `srem(name, *members)` | 移除成员 |
 
 ## 序列化说明 🔄
 
-模块自动处理 Python 对象和 Redis 字符串的转换：
+模块使用带版本标记的 JSON 协议处理 Python 对象和 Redis 字符串的转换。支持
+`str`、`bool`、`int`、`float`、`None`、`list` 和字符串键的 `dict`；不支持的类型会明确抛出
+`TypeError`，避免静默转换造成类型或数据丢失。升级前未带版本标记的缓存值会按原始字符串返回。
+
+> 升级提示：新旧协议的 Redis Set 成员可能同时存在并形成逻辑重复，且新版 `srem()` 只操作新版编码。
+> 部署本变更时应使用新版 `clear()` 清理当前项目前缀缓存，或确认旧缓存均设置了 TTL 并等待其淘汰；
+> 不要调用 `FLUSHDB`，以免影响共享数据库中的其他项目。
 
 ```python
 # 支持的类型自动序列化
@@ -332,12 +381,11 @@ data = {
     'null': None,
     'list': [1, 2, 3],
     'dict': {'nested': 'value'},
-    'custom': datetime.now()  # 通过 default=str 转换
 }
 
 await redis_manager.set('data', data)
 result = await redis_manager.get('data')
-# 完全相同的数据结构
+# 新写入值会保持完全相同的数据结构和基础类型
 ```
 
 ## 最佳实践 💡
@@ -512,13 +560,17 @@ async def update_user(user_id: int, data: dict):
 ```python
 from redis.exceptions import RedisError
 
-async def safe_cache_get(key: str, default=None):
+from app.core.cache import get_redis_manager
+from app.core.log import log
+
+
+async def safe_cache_get(key: str, default: object = None) -> object:
     try:
         redis_manager = get_redis_manager()
         return await redis_manager.get(key, default)
-    except RedisError as e:
+    except RedisError as exc:
         # 缓存异常不应影响主业务流程
-        print(f"Cache error: {e}")
+        log.warning(f"Redis 缓存读取失败: error_type={type(exc).__name__}")
         return default
 ```
 
@@ -571,7 +623,7 @@ async def safe_cache_get(key: str, default=None):
 ```
 日志: JSON serialization failed
 原因: 自定义对象无法序列化
-解决: 在对象中定义 __str__ 方法或使用 default=str
+解决: 写入受支持的基础类型，或在业务层先显式转换为字符串、列表或字符串键字典
 ```
 
 ### 心跳检查失败（自动恢复）
@@ -636,8 +688,9 @@ config/
 | `REDIS_DB` | int | 0 | 数据库编号 | 直接使用 |
 | `REDIS_PASSWORD` | str \| None | None | 认证密码 | 可选 |
 | `REDIS_MAX_CONNECTIONS` | int | 10 | 连接池最大连接数 | 必须 > 0 ✓ |
-| `REDIS_TIMEOUT` | int | 5 | 连接超时时间（秒） | 必须 > 0 ✓ |
-| `REDIS_PREFIX` | str | anda_erp | **项目级键前缀**（手动配置）| 用于区分多项目 |
+| `REDIS_TIMEOUT` | float | 5 | 连接超时时间（秒） | 必须 > 0 ✓ |
+| `REDIS_COMMAND_TIMEOUT` | float | 5 | 命令执行超时时间（秒） | 必须 > 0 ✓ |
+| `REDIS_PREFIX` | str | template | **项目级键前缀**（手动配置）| 用于区分多项目 |
 
 **REDIS_PREFIX 说明：**
 
@@ -720,8 +773,3 @@ redis>=5.0.0
 ```
 
 自动通过 `pip install redis` 或项目依赖安装。
-
-## License
-
-MIT
-

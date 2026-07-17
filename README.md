@@ -9,6 +9,7 @@
 - [技术栈](#技术栈)
 - [项目结构](#项目结构)
 - [快速开始](#快速开始)
+- [Docker 运行](#docker-运行)
 - [环境变量配置](#环境变量配置)
 - [核心模块](#核心模块)
   - [统一响应格式](#统一响应格式)
@@ -39,6 +40,7 @@
 | 鉴权 | PyJWT 2.13+（HS256） |
 | 配置管理 | Pydantic-Settings（读取进程环境变量） |
 | 日志 | Loguru |
+| UUID | uuid6（UUIDv7） |
 | 包管理 | [uv](https://docs.astral.sh/uv/) |
 | 代码检查/格式化 | [Ruff](https://docs.astral.sh/ruff/) |
 | 静态类型检查/语言服务器 | [ty](https://docs.astral.sh/ty/) |
@@ -50,6 +52,10 @@
 ```
 fastapi-template/
 ├── main.py                    # 应用入口（配置 → 日志 → FastAPI 按序初始化）
+├── Dockerfile                 # 多阶段生产镜像
+├── compose.yaml               # API 容器编排（连接外部 PostgreSQL / Redis）
+├── .dockerignore              # Docker 构建上下文忽略规则
+├── .env.docker.example        # Docker 环境变量示例
 ├── pyproject.toml             # 项目元数据 & Ruff / ty 配置
 ├── uv.lock                    # uv 锁定文件
 ├── tests/                     # 测试用例
@@ -69,8 +75,7 @@ fastapi-template/
 │   ├── repositories/          # 数据库访问层（Repository 模式）
 │   ├── schemas/               # Pydantic Schema（请求体/响应体）
 │   ├── scheduler/             # 定时任务（可扩展）
-│   ├── services/              # 业务逻辑层
-│   └── utils/                 # 工具函数（UUIDv7 等）
+│   └── services/              # 业务逻辑层
 └── config/                    # 各模块配置，统一由 settings.py 汇总
     ├── settings.py            # 全局 Settings 入口（lru_cache 单例）
     ├── app_config.py          # 应用基础配置
@@ -97,7 +102,7 @@ uv sync
 
 ### 2. 配置环境变量
 
-仓库提供 `.env.example` 作为配置示例。当前配置类默认读取**进程环境变量**；如果希望直接读取根目录 `.env`，需要在配置类中显式设置 `env_file=".env"`，或由 IDE、部署平台、启动脚本先加载环境变量。
+仓库提供 `.env.example` 作为配置示例。当前配置类默认读取**进程环境变量**；如果希望直接读取根目录 `.env`，需要在配置类中显式设置 `env_file=".env"`，或由 IDE、部署平台、启动脚本先加载环境变量。`DB_PASSWORD` 与 `JWT_SECRET_KEY` 没有代码默认值，启动前必须显式配置。
 
 最小配置示例：
 
@@ -108,19 +113,26 @@ DB_PORT=5432
 DB_USER=postgres
 DB_PASSWORD=your_password
 DB_DATABASE=postgres
+DB_POOL_SIZE=5
+DB_MAX_OVERFLOW=10
+DB_POOL_RECYCLE=300
+DB_POOL_TIMEOUT=30
+DB_COMMAND_TIMEOUT=60
+DB_CONNECT_TIMEOUT=30
 
 # Redis
 REDIS_HOST=localhost
 REDIS_PORT=6379
 REDIS_DB=0
 REDIS_PASSWORD=
+REDIS_COMMAND_TIMEOUT=5
 
 # 接口速率限制（默认关闭）
 RATE_LIMIT_ENABLED=false
 RATE_LIMIT_DEFAULT=100/minute
 
-# JWT（生产环境必须替换！）
-JWT_SECRET_KEY=change-me-in-production-use-env-var
+# JWT（必填，至少 32 个字符）
+JWT_SECRET_KEY=replace-with-a-strong-random-secret
 ```
 
 启动前请确保 PostgreSQL 与 Redis 可连接；应用启动生命周期会执行数据库 `SELECT 1` 和 Redis `PING`。
@@ -136,12 +148,92 @@ uv run uvicorn main:app --reload
 | http://localhost:8000/docs | Swagger UI 交互文档 |
 | http://localhost:8000/redoc | ReDoc 文档 |
 | http://localhost:8000/openapi.json | OpenAPI Schema |
+| http://localhost:8000/health | PostgreSQL 与 Redis 健康状态 |
+
+---
+
+## Docker 运行
+
+项目提供生产型多阶段镜像和只运行 API 的 Compose 编排。PostgreSQL 与 Redis 使用外部已有服务，不会由 Compose 创建；应用启动时会将两者作为强依赖进行连接检查。
+
+### 1. 创建 Docker 环境变量文件
+
+```powershell
+Copy-Item .env.docker.example .env.docker
+```
+
+必须在 `.env.docker` 中填写：
+
+```dotenv
+API_PORT=宿主机对外端口，例如8000
+DB_HOST=容器可访问的PostgreSQL地址
+DB_PASSWORD=至少6个字符的数据库密码
+REDIS_HOST=容器可访问的Redis地址
+JWT_SECRET_KEY=至少32个字符的强随机密钥
+```
+
+密码或密钥包含 `$`、`${...}`、空格、`#` 等特殊字符时，应使用单引号包裹，例如 `DB_PASSWORD='实际密码'`，避免 Compose 将其插值或截断。
+
+外部 Redis 开启认证时还需要取消 `REDIS_PASSWORD` 的注释并填写密码；未开启认证时保持该配置为注释状态。`.env.docker` 已加入 `.gitignore`，不得提交真实凭据。
+
+Compose 通过服务级 `env_file` 将 `.env.docker` 中已启用的配置注入 API 容器；保持注释的非必填项不会进入容器，由 `config/` 中的代码默认值接管。需要覆盖可选配置时，取消对应注释并修改值即可。列表类型必须使用 JSON 字符串格式，例如：
+
+```dotenv
+CORS_ALLOW_ORIGINS="[\"https://admin.example.com\",\"https://app.example.com\"]"
+JWT_PUBLIC_PATHS="[\"/docs\",\"/health\"]"
+```
+
+如果 PostgreSQL 或 Redis 运行在 Docker 宿主机上，`DB_HOST` / `REDIS_HOST` 可填写 `host.docker.internal`；Compose 已为 Linux Docker Engine 配置对应的 `host-gateway` 映射。远程服务则填写容器网络能够访问的内网域名或 IP，不能填写 `localhost`，因为容器中的 `localhost` 指向 API 容器自身。
+
+### 2. 准备日志目录
+
+Compose 不会自动创建日志目录，避免 Linux 上自动生成的 root 目录导致镜像内 UID `10001` 无法写入。Linux 宿主机首次启动前执行：
+
+```bash
+mkdir -p logs
+sudo chown 10001:10001 logs
+```
+
+Windows Docker Desktop 只需创建目录，无需调整所有者：
+
+```powershell
+New-Item -ItemType Directory -Force logs
+```
+
+### 3. 构建并启动
+
+启动前应确认外部 PostgreSQL 与 Redis 已运行，并且配置的地址、端口和凭据可以从 API 容器网络访问。还应确认当前 Shell 中没有无意保留的 `API_PORT`、`DB_HOST`、`DB_PASSWORD`、`REDIS_HOST` 或 `JWT_SECRET_KEY`，因为 Shell 同名变量的优先级高于 `--env-file`。
+
+```bash
+docker compose --env-file .env.docker config -q
+docker compose --env-file .env.docker up --build -d
+docker compose --env-file .env.docker ps
+```
+
+`config -q` 只校验最终 Compose 配置，不打印展开后的环境变量。命令行的 `--env-file` 为 Compose 的端口映射和必填项校验提供变量，服务级 `env_file` 则将同一文件中的应用配置注入容器，两者用途不同。Compose 只启动 API 容器，宿主机对外端口由必填的 `API_PORT` 决定；容器内部固定监听 `8000`，不会创建、停止或删除外部 PostgreSQL/Redis。应用文件日志映射到根目录 `logs/`。
+
+### 4. 检查与停止
+
+```bash
+docker compose --env-file .env.docker logs -f api
+docker compose --env-file .env.docker down
+```
+
+健康检查接口：
+
+```text
+GET http://localhost:<API_PORT>/health
+```
+
+PostgreSQL 和 Redis 均正常时返回 HTTP 200，任一外部关键依赖不可用时返回 HTTP 503。`docker compose down` 只停止并删除 API 容器，不影响外部 PostgreSQL 和 Redis。
+
+容器默认按 `DB 单条命令超时 60 秒 < Uvicorn 优雅关闭 70 秒 < Compose stop_grace_period 90 秒` 协调停止预算。Uvicorn 最多等待在途连接和后台任务 70 秒，Compose 再预留约 20 秒用于 lifespan 资源清理后才允许强制停止。这里是默认场景的 best-effort 预算：DB 超时只约束单条命令，不代表整个请求耗时；覆盖任一超时时应继续保持严格递增关系和足够的清理余量。
 
 ---
 
 ## 环境变量配置
 
-所有配置均通过 **Pydantic-Settings** 管理，默认读取进程环境变量；未提供环境变量时使用代码内默认值。当前代码未配置 `env_file`，因此不会自动加载根目录 `.env` 文件。
+所有配置均通过 **Pydantic-Settings** 管理，默认读取进程环境变量；除明确标记为必填的敏感配置外，未提供环境变量时使用代码内默认值。配置类自身未设置 Pydantic 的 `env_file`，因此不会直接读取根目录 `.env`；Docker 运行时由 Compose 的服务级 `env_file` 将 `.env.docker` 注入进程环境。
 
 ### 数据库
 
@@ -150,8 +242,14 @@ uv run uvicorn main:app --reload
 | `DB_HOST` | `localhost` | PostgreSQL 主机地址 |
 | `DB_PORT` | `5432` | 端口 |
 | `DB_USER` | `postgres` | 用户名 |
-| `DB_PASSWORD` | `123456` | 密码（生产环境必须覆盖） |
+| `DB_PASSWORD` | 无，必填 | PostgreSQL 密码，不允许空字符串 |
 | `DB_DATABASE` | `postgres` | 数据库名 |
+| `DB_POOL_SIZE` | `5` | 单个应用进程的常驻连接池大小，必须大于 0 |
+| `DB_MAX_OVERFLOW` | `10` | 单个应用进程允许临时创建的额外连接数，必须大于等于 0 |
+| `DB_POOL_RECYCLE` | `300` | 连接回收周期（秒），`-1` 表示禁用回收 |
+| `DB_POOL_TIMEOUT` | `30` | 从连接池获取连接的最长等待时间（秒） |
+| `DB_COMMAND_TIMEOUT` | `60` | asyncpg 命令执行超时（秒）；Docker 默认值须小于 Uvicorn 与 Compose 停止预算 |
+| `DB_CONNECT_TIMEOUT` | `30` | asyncpg 建立连接超时（秒） |
 
 ### Redis 缓存
 
@@ -163,7 +261,16 @@ uv run uvicorn main:app --reload
 | `REDIS_PASSWORD` | `None` | 认证密码（可选） |
 | `REDIS_MAX_CONNECTIONS` | `10` | 连接池最大连接数 |
 | `REDIS_TIMEOUT` | `5` | 连接超时（秒） |
-| `REDIS_PREFIX` | `anda_erp` | 项目级键前缀，多项目共享 Redis 实例时用于数据隔离 |
+| `REDIS_COMMAND_TIMEOUT` | `5` | Redis 命令执行超时（秒） |
+| `REDIS_PREFIX` | `template` | 项目级键前缀，多项目共享 Redis 实例时用于数据隔离 |
+
+### 日志
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `LOG_LEVEL` | `20` | 日志级别，使用 Python logging 的数值级别（`20` 为 INFO） |
+| `LOG_RETENTION` | `14 days` | 日志文件保留周期 |
+| `LOG_ROTATION_TIME` | `00:00` | 日志文件轮转时间 |
 
 ### 接口速率限制
 
@@ -176,10 +283,10 @@ uv run uvicorn main:app --reload
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `JWT_SECRET_KEY` | `change-me-in-production-use-env-var` | ⚠️ 生产环境必须替换为强随机值 |
+| `JWT_SECRET_KEY` | 无，必填 | JWT 签名密钥，至少 32 个字符 |
 | `JWT_ALGORITHM` | `HS256` | 签名算法 |
 | `JWT_ACCESS_TOKEN_EXPIRE_HOUR` | `24` | Token 有效期（小时） |
-| `JWT_PUBLIC_PATHS` | `/docs`, `/redoc`, `/openapi.json`, `/favicon.ico`, `/health`, `/api/auth/login`, `/api/auth/register` | 跳过鉴权的公开路径（前缀匹配） |
+| `JWT_PUBLIC_PATHS` | `/docs`, `/redoc`, `/openapi.json`, `/favicon.ico`, `/health`, `/api/auth/login`, `/api/auth/register` | 跳过鉴权的公开路径（精确匹配或路径段子路径） |
 
 ### 中间件
 
@@ -326,18 +433,27 @@ await redis.hset("user:profile:1", {"name": "张三"}, ex=120)  # Hash 操作
 
 ```python
 from app.core.cache import cache
+from app.schemas.demo_schema import UserResponse
+
 
 @cache(key_prefix="user", ttl=3600)
 async def get_user(user_id: int):
-    return await db.users.get(user_id)
+    user = await db.users.get(user_id)
+    if user is None:
+        return None
+    return UserResponse.model_validate(user, from_attributes=True).model_dump(mode="json")
 ```
+
+> 装饰器按函数完整路径和绑定后的参数生成 SHA-256 缓存键；参数应使用稳定的基础数据类型，
+> 不要传入 `Request`、数据库 Session 或 ORM 对象。返回值同样必须是 Redis 支持的 JSON 基础类型、
+> 列表或字符串键字典；ORM 对象应优先通过明确的响应 Schema 筛选字段并转换为 JSON-safe 数据，避免把密码哈希等敏感字段写入缓存。实例方法仅适用于不依赖实例可变状态的无状态 Service。
 
 **业务模块前缀常量（推荐）：**
 
 ```python
 from app.core.cache import RedisPrefixes
 
-# 实际键名: anda_erp:user:profile:{user_id}
+# 实际键名: template:user:profile:{user_id}
 await redis.hset(f"{RedisPrefixes.USER_PROFILE}:{user_id}", data, ex=120)
 ```
 
@@ -378,7 +494,11 @@ async def create_order(request: Request):
 
 ### 数据库
 
-基于 **SQLAlchemy 2.0 全异步**，通过 FastAPI 依赖注入获取 `AsyncSession`，连接池参数已预调优。
+基于 **SQLAlchemy 2.0 全异步**，通过 FastAPI 依赖注入获取 `AsyncSession`，连接池参数已预调优。普通 `async_sessionmaker` 会为每个请求创建独立会话，`get_db` 负责关闭，并在请求异常或取消时尝试回滚；回滚或关闭自身失败不会覆盖原始请求异常。
+
+公共 `created_at` / `updated_at` 使用不带时区的北京时间语义，PostgreSQL 会话固定为 `Asia/Shanghai`，默认值和更新时间均由数据库 `now()` 生成。API Schema 的明确日期时间字段统一输出为 `YYYY-MM-DD HH:MM:SS`，例如 `2026-07-16 08:30:45`；业务响应应先转换为继承 `BaseSchema` 的明确响应模型，不要在动态 `Any` 容器中直接放置裸 `datetime`。
+
+> 已存在业务表时，仅修改 ORM 不会自动改变数据库列类型和默认约束。如果列已经是 `TIMESTAMP WITH TIME ZONE`，改为无时区列时应通过迁移按 `Asia/Shanghai` 保留北京时间的墙上时间；尚未建表或原本就是无时区列时无需转换列类型。
 
 **定义模型：**
 
@@ -419,6 +539,27 @@ async def get_user(user_id: int, db: DBSessionDep) -> ResponseSchema:
     return ResponseSchema.ok(data=user)
 ```
 
+**调试 Repository SQL：**
+
+```python
+from app.core.log import log
+from app.repositories.base_repo import BaseRepository
+
+
+compiled = BaseRepository.sql_compile(statement, dialect=db.get_bind().dialect)
+log.debug(f"SQL: {compiled}")       # 默认只输出占位符
+parameters = compiled.params         # 仅在调试器中按需检查，不要直接写入日志
+
+# 仅限确认不含密码、Token 等敏感值的本地调试场景
+literal_sql = BaseRepository.sql_compile(
+    statement,
+    dialect=db.get_bind().dialect,
+    unsafe_literal_binds=True,
+)
+```
+
+`BaseRepository` 接受 SQLAlchemy 2.x 可执行语句（包括 `Select` / DML / `CompoundSelect` / 参数绑定的 `TextClause`），不兼容同步 `Query`。Repository 基类继续为每个无状态子类复用一个共享实例；不要把请求 Session 或可变请求状态保存到实例属性。
+
 ---
 
 ### 日志系统
@@ -435,7 +576,7 @@ log.debug(f"请求参数: {params}")
 ```
 
 - 日志文件自动按时间滚动，输出至 `logs/` 目录。
-- 控制台彩色输出，文件与控制台级别可独立配置。
+- 控制台彩色输出，控制台与文件使用统一的 `LOG_LEVEL`。
 
 ---
 
@@ -461,6 +602,8 @@ async def get_list(pagination: PageDep):
 ### 中间件
 
 当前默认启用 CORS 与 GZip；JWT 中间件实现已提供但未默认注册。
+
+CORS 在首次 ASGI 调用时包裹 FastAPI 的完整内部中间件栈，因此正常响应、预检响应和兜底 500 响应都会应用同一份跨域配置，且不会重复注册第二层 CORS；应用启动前后续注册的路由、中间件和异常处理器仍会进入内部栈。
 
 默认中间件执行顺序（请求方向）：
 
@@ -559,4 +702,3 @@ uv run ty check
 ## License
 
 Apache-2.0
-

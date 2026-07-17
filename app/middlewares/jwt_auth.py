@@ -4,7 +4,8 @@ JWT 鉴权中间件
 对每个请求自动进行 JWT Token 验证，通过后将解析出的 payload 挂载到
 request.state，下层路由和依赖项可直接读取。
 
-公开路径（无需鉴权）通过 JWTSettings.JWT_PUBLIC_PATHS 配置，采用前缀匹配。
+公开路径（无需鉴权）通过 JWTSettings.JWT_PUBLIC_PATHS 配置，
+仅匹配完全相同的路径或其路径段子路径。
 
 响应格式统一由 app.exceptions.handlers.build_error_response 构建，
 与全局异常处理器共享同一套结构，确保错误输出一致。
@@ -71,7 +72,11 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
                 token,
                 self._jwt_settings.JWT_SECRET_KEY,
                 algorithms=[self._jwt_settings.JWT_ALGORITHM],
+                options={"require": ["exp", "sub"]},
             )
+            subject = payload.get("sub")
+            if not isinstance(subject, str) or not subject.strip():
+                raise jwt.InvalidTokenError("Token subject 必须是非空字符串")
         except jwt.ExpiredSignatureError:
             log.warning(f"JWT 鉴权失败: Token 已过期 | path={request.url.path}")
             return build_error_response(
@@ -79,8 +84,8 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
                 code=ErrorCode.UNAUTHORIZED,
                 message="Token 已过期，请重新登录",
             )
-        except jwt.InvalidTokenError as exc:
-            log.warning(f"JWT 鉴权失败: Token 无效 | path={request.url.path} error={exc}")
+        except (jwt.InvalidTokenError, TypeError) as exc:
+            log.warning(f"JWT 鉴权失败: Token 无效 | path={request.url.path} error_type={type(exc).__name__}")
             return build_error_response(
                 http_status=401,
                 code=ErrorCode.UNAUTHORIZED,
@@ -89,17 +94,20 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
 
         # 将解析结果挂载到 request.state，供下层依赖项使用
         request.state.jwt_payload = payload
-        request.state.user_id = payload.get("sub")
+        request.state.user_id = subject
 
         return await call_next(request)
 
     def _is_public_path(self, path: str) -> bool:
         """
-        判断请求路径是否属于公开路径（前缀匹配）。
+        判断请求路径是否等于公开路径，或位于其路径段子路径下。
 
         示例: /docs/oauth2-redirect 会匹配公开路径 /docs。
         """
-        return any(path.startswith(public) for public in self._jwt_settings.JWT_PUBLIC_PATHS)
+        return any(
+            path == public_path or path.startswith(f"{public_path}/")
+            for public_path in self._jwt_settings.JWT_PUBLIC_PATHS
+        )
 
     @staticmethod
     def _extract_bearer_token(request: Request) -> str | None:

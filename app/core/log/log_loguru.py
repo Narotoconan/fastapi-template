@@ -34,6 +34,8 @@ def register() -> loguru.Logger:
         sink=sys.stdout,
         level=level,
         enqueue=True,  # ✅ 异步处理，不阻塞主线程
+        backtrace=False,
+        diagnose=False,
     )
     logger.add(
         sink=f"{path}/app.log",
@@ -41,6 +43,8 @@ def register() -> loguru.Logger:
         rotation=rotation_time,
         retention=retention,
         enqueue=True,  # ✅ 异步处理，不阻塞主线程
+        backtrace=False,
+        diagnose=False,
     )
 
     return logger
@@ -57,8 +61,8 @@ class InterceptHandler(logging.Handler):
 
         # Find caller from where originated the logged message
         frame = logging.currentframe()
-        depth = 2
-        while frame is not None and frame.f_code.co_filename == logging.__file__:
+        depth = 0
+        while frame is not None and (depth == 0 or frame.f_code.co_filename == logging.__file__):
             frame = frame.f_back
             depth += 1
 
