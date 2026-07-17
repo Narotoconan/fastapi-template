@@ -191,7 +191,7 @@ await redis_manager.srem('tags', 'redis')
 
 ```python
 from app.core.cache import cache
-from app.schemas.user_schema import UserResponse
+from app.schemas.demo_schema import UserResponse
 
 
 @cache(key_prefix="user", ttl=3600)
@@ -230,8 +230,9 @@ Token 或未稳定加载关系的完整 ORM 对象。
 ### 装饰器 vs 手动缓存
 
 **使用装饰器 ✅（推荐）**
+
 ```python
-from app.schemas.user_schema import UserResponse
+from app.schemas.demo_schema import UserResponse
 
 
 @cache(key_prefix="user", ttl=3600)
@@ -243,8 +244,9 @@ async def get_user(user_id: int):
 ```
 
 **手动管理 🎯（复杂场景）**
+
 ```python
-from app.schemas.user_schema import UserResponse
+from app.schemas.demo_schema import UserResponse
 
 
 async def get_user(user_id: int):
@@ -282,7 +284,7 @@ async def get_user(user_id: int):
 from fastapi import APIRouter, Depends
 
 from app.core.cache import get_redis_manager
-from app.schemas.user_schema import UserResponse
+from app.schemas.demo_schema import UserResponse
 
 router = APIRouter()
 

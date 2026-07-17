@@ -16,7 +16,6 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from app.core.log import log
 from app.exceptions.errors import BizException, ErrorCode
 from app.exceptions.validation_i18n import translate_validation_error
-from app.schemas.base_schema import format_datetime
 
 # 映射常见 HTTP 状态码到业务错误码
 _STATUS_CODE_MAP: dict[int, int] = {
@@ -52,7 +51,7 @@ def build_error_response(
             "message": message,
             "result": {} if result is None else result,
         },
-        custom_encoder={datetime: format_datetime},
+        custom_encoder={datetime: lambda x: x.strftime("%Y-%m-%d %H:%M:%S")},
     )
     return JSONResponse(
         status_code=http_status,

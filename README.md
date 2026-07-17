@@ -433,7 +433,7 @@ await redis.hset("user:profile:1", {"name": "张三"}, ex=120)  # Hash 操作
 
 ```python
 from app.core.cache import cache
-from app.schemas.user_schema import UserResponse
+from app.schemas.demo_schema import UserResponse
 
 
 @cache(key_prefix="user", ttl=3600)
