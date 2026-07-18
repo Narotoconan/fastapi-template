@@ -7,6 +7,11 @@ from sqlalchemy.sql.elements import ClauseElement
 SQL = ClauseElement
 
 
+def _is_executable_statement(sql: object) -> bool:
+    """判断对象是否为 SQLAlchemy 2.x 可执行语句。"""
+    return isinstance(sql, ClauseElement) and isinstance(sql, Executable)
+
+
 class BaseRepository:
     """无状态 Repository 的共享实例基类。"""
 
@@ -30,7 +35,7 @@ class BaseRepository:
         调试时可通过返回对象的 ``params`` 属性单独检查绑定参数。只有在确认
         参数不含敏感信息时，才应显式启用 ``unsafe_literal_binds``。
         """
-        if not isinstance(sql, ClauseElement) or not isinstance(sql, Executable):
+        if not _is_executable_statement(sql):
             raise TypeError("sql 必须是 SQLAlchemy 2.x 可执行语句")
 
         if unsafe_literal_binds:

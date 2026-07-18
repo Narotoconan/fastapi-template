@@ -1,5 +1,5 @@
 import io
-from typing import Annotated, Any
+from typing import Annotated
 
 from faker import Faker
 from fastapi import APIRouter, Query, Request
