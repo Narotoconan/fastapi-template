@@ -1,775 +1,343 @@
-# Redis Cache Module 📦
+# Redis 缓存
 
-轻量级异步 Redis 缓存模块，为中小型项目设计，提供开箱即用的缓存解决方案。
+`app/core/cache/` 提供异步 Redis 连接管理、项目级键前缀、严格 JSON 序列化、常用数据结构操作和
+异步函数缓存装饰器。
 
-## 核心特性 ✨
+Redis 是当前模板的启动强依赖：应用启动时必须连接成功并通过 `PING`，否则服务不会进入就绪状态。
+连接、命令和写入序列化错误默认会记录并向外传播，不会自动静默降级；读取到损坏的版本化 JSON
+载荷时是例外，模块会记录警告并返回原始字符串。
 
-- ✅ **异步连接管理** - 完全异步 I/O，零阻塞
-- ✅ **自动连接池** - 内置连接池管理，自动复用
-- ✅ **连接保活** - 自动心跳检查，30 秒间隔，连接故障自动重连
-- ✅ **JSON 序列化** - 自动支持复杂数据结构序列化
-- ✅ **灵活配置** - 环境变量配置，开箱即用
-- ✅ **单例模式** - 全局唯一管理器实例
-- ✅ **丰富 API** - 支持 String、Hash、List、Set 等数据结构
-- ✅ **函数缓存** - 装饰器简化函数结果缓存
+## 文件职责
 
-## 快速开始 🚀
-
-### 1. 环境配置
-
-通过进程环境变量配置 Redis 连接参数（可选，已有默认值）。配置类不会自动读取根目录 `.env`；如使用该文件，应由 IDE、部署平台或启动脚本先加载：
-
-```env
-REDIS_HOST=localhost
-REDIS_PORT=6379
-REDIS_DB=0
-REDIS_PASSWORD=  # 如果需要认证
-REDIS_MAX_CONNECTIONS=10
-REDIS_TIMEOUT=5
-REDIS_COMMAND_TIMEOUT=5
+```text
+app/core/cache/
+├── __init__.py       # init_cache / close_cache 与公共导出
+├── redis.py          # RedisManager、连接池和数据操作
+├── decorators.py     # @cache 异步函数缓存
+├── prefixes.py       # 业务键前缀常量
+└── README.md
 ```
 
-### 2. 自动初始化
+配置位于 [`config/cache_config.py`](../../../config/cache_config.py)，依赖由 `pyproject.toml` 和
+`uv.lock` 管理，无需单独执行 `pip install redis`。
 
-模块已集成到应用生命周期中，启动时自动连接，关闭时自动断开：
+## 生命周期
+
+应用生命周期已经完成集成：
+
+```text
+启动：PostgreSQL 检查 -> Redis connect + PING -> 启动 30 秒心跳
+关闭：PostgreSQL -> Redis -> Loguru 队列
+```
+
+连接行为：
+
+- 并发 `connect()` 通过锁串行化，只初始化一个客户端。
+- 客户端仅在 `PING` 成功后才对外发布。
+- 心跳每 30 秒执行一次。
+- 心跳失败后每次等待 5 秒重连，最多尝试 5 次。
+- 持续失败达到上限后停止当前心跳任务，不会无限重试。
+- `disconnect()` 会先取消并等待心跳结束，再关闭客户端和连接池。
+- 启动中途失败仍会进入统一资源清理流程。
+
+正常通过 `main:app` 启动时不需要手工调用 `init_cache()` 或 `close_cache()`。
+
+## 配置
+
+配置类读取进程环境变量，不会自行加载根目录 `.env`。本地可使用
+`uv run --env-file .env.local ...`，Docker 由 Compose 注入。
+
+| 变量 | 类型 | 默认值 | 约束与用途 |
+| --- | --- | --- | --- |
+| `REDIS_HOST` | `str` | `localhost` | 不得为空白 |
+| `REDIS_PORT` | `int` | `6379` | `1..65535` |
+| `REDIS_DB` | `int` | `0` | 必须大于等于 0 |
+| `REDIS_PASSWORD` | `str \| None` | `None` | 可选认证密码 |
+| `REDIS_MAX_CONNECTIONS` | `int` | `10` | 单进程连接池上限，至少 1 |
+| `REDIS_TIMEOUT` | `float` | `5` | 建立连接超时，必须大于 0 |
+| `REDIS_COMMAND_TIMEOUT` | `float` | `5` | 命令读写超时，必须大于 0 |
+| `REDIS_PREFIX` | `str` | `template` | 项目键命名空间，不得为空白 |
+
+连接池上限按应用进程计算；多进程部署时需要乘以进程数并结合 Redis 连接上限评估。
+
+## 快速使用
 
 ```python
-# app/core/events/startup.py - 应用启动时
-from app.core.cache import init_cache
+from app.core.cache import RedisPrefixes, get_redis_manager
 
 
-async def startup():
-    await init_cache()  # 自动初始化 Redis 连接
-
-
-# app/core/events/shutdown.py - 应用关闭时
-from app.core.cache import close_cache
-
-
-async def shutdown():
-    await close_cache()  # 自动关闭 Redis 连接
+async def save_user_profile(
+    user_id: int,
+    profile: dict[str, str | int],
+) -> None:
+    """写入用户资料缓存。"""
+    redis_manager = get_redis_manager()
+    cache_key = f"{RedisPrefixes.USER_PROFILE}:{user_id}"
+    await redis_manager.hset(cache_key, profile, ex=300)
 ```
 
-**无需手动操作，应用启动时自动初始化 Redis 连接！**
+所有公开操作都是异步方法，必须使用 `await`。
 
-### 2. 连接保活机制
+## 键前缀
 
-模块内置自动心跳检查（完全自动，无需配置）：
-
-- 🫀 **心跳间隔** - 每 30 秒检查一次连接
-- 🔄 **自动重连** - 连接失败时 5 秒后自动重连
-- 📊 **日志记录** - 所有状态通过 loguru 以中文日志记录
-- ✅ **故障恢复** - 异常情况下自动恢复连接
-
-**心跳检查日志：**
-```
-正常运行:    [DEBUG] ❤️ Redis 心跳检查: 正常
-启动时:      [INFO]  ❤️ Redis 心跳检查已启动 (检查间隔: 30 秒)
-连接失败:    [WARNING] ⚠️ Redis 心跳检查失败: {error}
-开始重连:    [INFO]  🔄 开始重连 Redis...
-重连成功:    [INFO]  ✅ Redis 重连成功
-关闭时:      [DEBUG] ❤️ Redis 心跳检查已停止
-```
-
-### 3. 基本使用
-
-#### 自动项目前缀
-
-所有的键都会自动添加项目前缀（`REDIS_PREFIX`），用于区分多个项目在同一 Redis 实例中的数据。
+`RedisManager` 自动把 `REDIS_PREFIX` 加到每个业务键前：
 
 ```python
-# REDIS_PREFIX 配置: template
-# 输入的键
-await redis.set('user:1', {'id': 1, 'name': 'Alice'})
-
-# Redis 中实际存储的键
-# template:user:1
+await redis_manager.set("user:1", {"id": 1}, ex=300)
 ```
 
-**前缀规则：**
-- 基于 `REDIS_PREFIX` 配置项（可手动修改）
-- 默认值：`template`
-- 自动与键名用 `:` 拼接
+当 `REDIS_PREFIX=template` 时，实际键为：
 
-**配置示例：**
-```env
-# 进程环境变量
-REDIS_PREFIX=anda_erp          # 生产环境
-# 或改为
-REDIS_PREFIX=shop_system       # 其他项目
+```text
+template:user:1
 ```
 
-#### 字符串操作
+建议使用 `{domain}:{resource}:{id}` 这样的稳定结构。模板当前提供以下业务前缀常量：
+
+| 常量 | 值 |
+| --- | --- |
+| `USER_PROFILE` | `user:profile` |
+| `USER_SETTINGS` | `user:settings` |
+| `USER_PERMISSIONS` | `user:permissions` |
+| `USER_SESSIONS` | `user:sessions` |
+| `INVENTORY_STOCK` | `inventory:stock` |
+| `INVENTORY_RESERVED` | `inventory:reserved` |
+| `REPORT_DAILY` | `report:daily` |
+| `REPORT_MONTHLY` | `report:monthly` |
+| `REPORT_SUMMARY` | `report:summary` |
+| `CONFIG_APP` | `config:app` |
+| `CONFIG_PRODUCTS` | `config:products` |
+| `CACHE_TRENDING` | `cache:trending` |
+
+新增真实业务后再扩展 [`prefixes.py`](prefixes.py)，不要在文档或调用方引用不存在的常量。
+
+`REDIS_PREFIX` 只是命名隔离，不是安全边界。共享 Redis 时仍需配置认证、网络策略和独立权限。
+
+## 序列化协议
+
+写入值使用带版本标记的 JSON 协议。支持的精确类型为：
+
+- `str`
+- `bool`
+- `int`
+- 有限 `float`
+- `None`
+- `list`，元素递归遵循同一规则
+- 字符串键 `dict`，值递归遵循同一规则
+
+不支持直接写入：
+
+- `tuple`
+- Pydantic 模型
+- ORM 对象
+- `datetime`、`UUID`、`Enum`
+- 自定义类或基础类型子类
+- 非字符串键字典
+- `NaN`、`Infinity`
+
+不支持的值会抛出 `TypeError` 或 JSON 数值校验错误，不会隐式调用 `str()`。业务对象应先通过明确的
+响应 Schema 筛选字段，再使用 `model_dump(mode="json")` 转为 JSON-safe 数据：
 
 ```python
-from app.core.cache import get_redis_manager
-
-redis_manager = get_redis_manager()
-
-# 设置缓存（支持 TTL，自动添加项目前缀）
-await redis_manager.set('user:1', {'id': 1, 'name': 'Alice'}, ex=3600)
-# 实际键名: template:user:1
-
-# 获取缓存（自动反序列化）
-user = await redis_manager.get('user:1')
-# user == {'id': 1, 'name': 'Alice'}
-
-# 删除缓存
-await redis_manager.delete('user:1')
-
-# 检查是否存在
-exists = await redis_manager.exists('user:1')
+cache_value = user_response.model_dump(mode="json")
+await redis_manager.set("user:1", cache_value, ex=300)
 ```
 
-#### 批量操作
+不要缓存密码哈希、Token、密钥或未稳定加载关系的完整 ORM 对象。
+
+### 旧值兼容
+
+没有当前版本标记的旧缓存值会按原始字符串返回，不再猜测 `"123"`、`"true"` 或 JSON 外观字符串
+的类型。升级序列化协议时：
+
+- 有 TTL 的旧键可以等待自然过期。
+- 无 TTL 的旧键应按项目 `REDIS_PREFIX` 定向清理。
+- 损坏的版本化载荷会记录不包含原始值的警告，并按原始字符串返回。
+- Redis Set 中的新旧编码可能形成逻辑重复，新版 `srem()` 只会移除新版编码成员。
+- 不要对共享数据库执行 `FLUSHDB`。
+
+## API 速查
+
+### 连接与通用键操作
+
+| 方法 | 返回值 | 说明 |
+| --- | --- | --- |
+| `connect()` | `None` | 创建连接池、验证 PING 并启动心跳 |
+| `disconnect()` | `None` | 停止心跳并关闭连接 |
+| `ping()` | `bool` | 检查当前客户端连接 |
+| `set(key, value, ex=None)` | `bool` | 写入 JSON 值，可设置 TTL |
+| `get(key, default=None)` | `Any` | 获取并反序列化；未命中返回 `default` |
+| `delete(*keys)` | `int` | 返回删除键数量 |
+| `exists(*keys)` | `int` | 返回存在的键数量，不是布尔值 |
+| `expire(key, ex)` | `bool` | 为已有键设置 TTL |
+| `ttl(key)` | `int` | 剩余秒数；`-1` 无过期，`-2` 不存在 |
+| `clear()` | `None` | 分批清理当前项目前缀下的键 |
+
+### 批量、Hash、List 与 Set
+
+| 方法 | 返回值 | 说明 |
+| --- | --- | --- |
+| `mset(data, ex=None)` | `bool` | 批量写入，可统一设置 TTL |
+| `mget(*keys)` | `list[Any]` | 严格按传入键顺序返回 |
+| `hset(name, mapping, ex=None)` | `int` | 返回新增字段数量 |
+| `hget(name, key)` | `Any` | 获取单个 Hash 字段 |
+| `hgetall(name)` | `dict[str, Any]` | 获取全部 Hash 字段 |
+| `hdel(name, *keys)` | `int` | 返回删除字段数量 |
+| `lpush(name, *values, ex=None)` | `int` | 左侧推入，返回列表长度 |
+| `rpush(name, *values, ex=None)` | `int` | 右侧推入，返回列表长度 |
+| `lpop(name)` / `rpop(name)` | `Any` | 弹出元素；空列表返回 `None` |
+| `lrange(name, start=0, end=-1)` | `list[Any]` | 获取闭区间范围 |
+| `sadd(name, *members, ex=None)` | `int` | 返回新增成员数量 |
+| `smembers(name)` | `list[Any]` | 返回无序列表 |
+| `srem(name, *members)` | `int` | 返回移除成员数量 |
+
+批量获取示例：
 
 ```python
-# 批量设置
-await redis_manager.mset({
-    'key1': 'value1',
-    'key2': {'nested': 'data'},
-    'key3': [1, 2, 3]
-})
+await redis_manager.mset(
+    {
+        "key1": "value1",
+        "key2": {"nested": "data"},
+        "key3": [1, 2, 3],
+    },
+    ex=300,
+)
 
-# 批量获取
-values = await redis_manager.mget('key1', 'key2', 'key3')
-# [{'nested': 'data'}, [1, 2, 3], 'value1']
+values = await redis_manager.mget("key1", "key2", "key3")
+# ["value1", {"nested": "data"}, [1, 2, 3]]
 ```
 
-#### 哈希操作
+传入空键或空成员时，批量删除、存在检查和集合/列表写入会返回 0；空 `mset` 返回 `True`。
+
+## TTL 原子性
+
+以下带 `ex` 的复合写操作会在 Redis 事务 pipeline 中同时执行写入和 `EXPIRE`：
+
+- `mset`
+- `hset`
+- `lpush`
+- `rpush`
+- `sadd`
+
+这样可以避免写入成功但进程在设置 TTL 前中断，留下意外的永久键。普通 `set(..., ex=...)` 由 Redis
+单条命令原子完成。
+
+设置 TTL 时仍需根据一致性和容量选择合理时长；`ex=None` 表示不自动过期，应谨慎使用。
+
+## 按项目前缀清理
 
 ```python
-# 设置哈希字段
-await redis_manager.hset('user:profile', {
-    'name': 'Alice',
-    'age': 30,
-    'tags': ['admin', 'user']
-})
-
-# 获取单个字段
-name = await redis_manager.hget('user:profile', 'name')
-
-# 获取所有字段
-profile = await redis_manager.hgetall('user:profile')
-
-# 删除字段
-await redis_manager.hdel('user:profile', 'age')
+await redis_manager.clear()
 ```
 
-#### 列表操作
+`clear()`：
 
-```python
-# 从左端推入
-await redis_manager.lpush('tasks', 'task1', 'task2')
+- 使用 `SCAN` 分批查找当前 `REDIS_PREFIX` 下的键。
+- `SCAN` 使用 `COUNT 500` 作为扫描提示，实际每批返回数量由 Redis 决定。
+- 优先使用 `UNLINK` 异步释放。
+- Redis 不支持 `UNLINK` 时回退到当前批次的 `DELETE`。
+- 不影响其他项目前缀，不调用 `FLUSHDB`。
 
-# 从右端推入
-await redis_manager.rpush('tasks', 'task3')
+清理仍是高影响操作，应只在缓存协议升级、测试隔离或明确的运维流程中执行。
 
-# 获取列表范围
-tasks = await redis_manager.lrange('tasks', 0, -1)
+## 函数缓存装饰器
 
-# 弹出元素
-task = await redis_manager.lpop('tasks')
-```
-
-#### 集合操作
-
-```python
-# 添加成员
-await redis_manager.sadd('tags', 'python', 'fastapi', 'redis')
-
-# 获取所有成员
-tags = await redis_manager.smembers('tags')
-
-# 移除成员
-await redis_manager.srem('tags', 'redis')
-```
-
-## 装饰器缓存 🎯
-
-用装饰器简化函数结果缓存，支持异步函数：
+`@cache` 只支持异步函数：
 
 ```python
 from app.core.cache import cache
-from app.schemas.demo_schema import UserResponse
 
 
-@cache(key_prefix="user", ttl=3600)
-async def get_user(user_id: int):
-    """获取用户信息，结果缓存 1 小时"""
-    user = await db.users.get(user_id)
-    if user is None:
-        return None
-    return UserResponse.model_validate(user, from_attributes=True).model_dump(mode="json")
-
-
-# 第一次调用：执行函数并缓存结果
-user = await get_user(1)
-
-# 第二次调用：直接从缓存返回
-user = await get_user(1)  # 从缓存读取
+@cache(key_prefix="item:category-options", ttl=3600)
+async def get_item_category_options() -> list[dict[str, int | str]]:
+    """读取稳定且可 JSON 序列化的商品分类选项。"""
+    return [{"label": "默认分类", "value": 1}]
 ```
 
-**参数说明：**
-- `key_prefix` - 缓存键前缀（可选，用于区分不同的缓存空间）
-- `ttl` - 过期时间，单位秒（可选，不指定则永不过期）
+### 键生成规则
 
-装饰器会根据函数的 `module + qualname` 以及绑定并补齐默认值后的参数生成 SHA-256 缓存键。
-因此 `get_user(1)` 与 `get_user(user_id=1)` 会命中同一个键，而不同模块中的同名函数不会互相覆盖。
-参数仅支持稳定的基础类型、列表、元组和字符串键字典；不要传入 `Request`、数据库 Session、ORM 对象等运行时对象，
-不支持的类型会直接抛出 `TypeError`，不会隐式调用 `str()`。
-实例方法的 `self` / `cls` 会按接收者类型生成稳定标识，因此仅应装饰不依赖实例可变状态的无状态 Service；
-状态会影响结果时，应将稳定状态显式作为函数参数，或改用手动缓存。
-函数返回值同样必须符合 Redis 的 JSON 序列化协议：基础类型、列表或字符串键字典。ORM 对象应优先通过明确的
-响应 Schema 筛选字段，再用 `model_dump(mode="json")` 转为 JSON-safe 数据；不要直接缓存可能包含密码哈希、
-Token 或未稳定加载关系的完整 ORM 对象。
+装饰器按以下内容生成 SHA-256 键：
 
-> 升级提示：新键协议不会命中旧装饰器键。有 TTL 的旧键可等待自然过期；无 TTL 的旧键应按项目 `REDIS_PREFIX`
-> 定向清理，不要对共享 Redis 执行 `FLUSHDB`。
+- 函数 `module + qualname`
+- 绑定后的全部参数
+- 补齐后的默认参数
+- 可选 `key_prefix`
 
-### 装饰器 vs 手动缓存
+因此：
 
-**使用装饰器 ✅（推荐）**
+- 位置参数与等价关键字参数命中同一键。
+- 显式传入默认值与省略默认值命中同一键。
+- 不同模块或不同限定名称的同名函数不会冲突。
+- `None` 可以被正确缓存，不会与“未命中”混淆。
 
-```python
-from app.schemas.demo_schema import UserResponse
+缓存键参数支持 `str / bool / int / finite float / None / list / tuple / 字符串键 dict`。
+`Request`、`AsyncSession`、ORM 对象和其他运行时对象会被拒绝。
 
+实例方法与类方法会按接收者类型生成键，不读取对象状态。因此装饰器只适合不依赖实例可变状态的
+无状态 Service；影响结果的稳定状态必须显式作为函数参数。
 
-@cache(key_prefix="user", ttl=3600)
-async def get_user(user_id: int):
-    user = await db.users.get(user_id)
-    if user is None:
-        return None
-    return UserResponse.model_validate(user, from_attributes=True).model_dump(mode="json")
+### 限制
+
+- 返回值必须符合前述 Redis 序列化协议；键参数支持 `tuple`，返回值不支持 `tuple`。
+- 装饰器不提供 singleflight、分布式锁或缓存击穿保护。
+- Redis 读写错误默认向外传播。
+- `ttl=None` 会产生无过期键。
+- 装饰器没有自动失效业务关联键的能力。
+
+高并发热点、条件 TTL、跨多个键失效或写后一致性场景应使用 Service 层手动缓存策略。
+
+## 缓存一致性与降级
+
+推荐的写操作顺序：
+
+1. 在 Service 中开启数据库事务。
+2. 完成数据库写入并成功退出事务。
+3. 删除或更新相关缓存键。
+4. 明确缓存失效失败时是让请求失败、记录待补偿任务，还是允许短暂不一致。
+
+不要在 Repository 中操作缓存或提交事务，Router 也不应直接编排“查缓存 → 查数据库 → 回填”。
+
+对于明确允许降级的只读缓存，Service 可以只捕获预期的 Redis 连接类异常、记录安全上下文并回源
+数据库。不要把“缓存失败永远放行”作为全局规则，也不要捕获所有 `Exception` 后静默忽略，
+否则序列化错误和业务缺陷会被隐藏。
+
+## 故障排查
+
+### Redis 客户端未初始化
+
+```text
+Redis 客户端未初始化，请先调用 connect() 建立连接
 ```
 
-**手动管理 🎯（复杂场景）**
+通过 `main:app` 启动时由 lifespan 自动连接。单独调用 Service 或脚本时，需要显式管理
+`init_cache()` / `close_cache()`，并保证日志已初始化。
 
-```python
-from app.schemas.demo_schema import UserResponse
+### 连接失败
 
+检查：
 
-async def get_user(user_id: int):
-    redis = get_redis_manager()
+- Redis 服务是否运行且能从当前进程或容器访问。
+- `REDIS_HOST / REDIS_PORT / REDIS_DB / REDIS_PASSWORD` 是否正确。
+- 容器内是否误用了 `localhost`。
+- 防火墙、网络策略和 Redis ACL 是否允许连接。
+- 连接池是否耗尽，超时是否符合当前网络环境。
 
-    cache_miss = object()
-    cached = await redis.get(f'user:{user_id}', default=cache_miss)
-    if cached is not cache_miss:
-        return cached
+### 序列化失败
 
-    user = await db.users.get(user_id)
-    cache_value = (
-        UserResponse.model_validate(user, from_attributes=True).model_dump(mode="json")
-        if user is not None
-        else None
-    )
-    await redis.set(f'user:{user_id}', cache_value, ex=3600)
-    return cache_value
-```
+把 Pydantic / ORM 对象显式转换为 JSON-safe 的基础类型。不要通过 `str(obj)` 绕过类型检查，
+否则会破坏读取后的类型契约。
 
-**何时使用装饰器：**
-- 简单的只读查询函数
-- 多个类似的缓存查询
-- 想要代码简洁
+### 心跳重连耗尽
 
-**何时手动管理：**
-- 需要复杂的缓存逻辑
-- 数据修改操作（需要清除缓存）
-- 条件性 TTL 设置
-- 高并发热点查询需要 singleflight、分布式锁等防击穿策略
+持续故障最多重试 5 次。恢复 Redis 后需要由运维重启应用或由上层恢复机制重新建立连接；不要假设
+已经退出的心跳任务会无限自行恢复。
 
-## 在 API 中的使用 📡
-
-```python
-from fastapi import APIRouter, Depends
-
-from app.core.cache import get_redis_manager
-from app.schemas.demo_schema import UserResponse
-
-router = APIRouter()
-
-
-@router.get('/users/{user_id}')
-async def get_user_info(user_id: int):
-    redis_manager = get_redis_manager()
-
-    # 尝试从缓存获取
-    cache_miss = object()
-    cached = await redis_manager.get(f'user:{user_id}', default=cache_miss)
-    if cached is not cache_miss:
-        return cached
-
-    # 缓存未命中，从数据库获取
-    user = await db.get_user(user_id)
-
-    # 存入缓存（TTL 1 小时）
-    cache_value = (
-        UserResponse.model_validate(user, from_attributes=True).model_dump(mode="json")
-        if user is not None
-        else None
-    )
-    await redis_manager.set(f'user:{user_id}', cache_value, ex=3600)
-
-    return cache_value
-```
-
-## API 参考 📚
-
-### 字符串操作
-
-| 方法 | 说明 | 示例 |
-|------|------|------|
-| `set(key, value, ex)` | 设置值 | `await redis.set('key', 'value', ex=3600)` |
-| `get(key, default)` | 获取值 | `await redis.get('key')` |
-| `delete(*keys)` | 删除键 | `await redis.delete('key1', 'key2')` |
-| `exists(*keys)` | 检查存在性 | `await redis.exists('key')` |
-| `expire(key, ex)` | 为已存在的键设置过期时间 | `await redis.expire('key', 3600)` |
-| `ttl(key)` | 获取键的剩余生存时间 | `await redis.ttl('key')` |
-| `clear()` | 分批清理当前项目前缀下的键 | `await redis.clear()` |
-
-### 批量操作
-
-| 方法 | 说明 |
-|------|------|
-| `mset(data, ex)` | 批量设置（支持过期时间） |
-| `mget(*keys)` | 批量获取 |
-
-### 哈希操作
-
-| 方法 | 说明 |
-|------|------|
-| `hset(name, mapping, ex)` | 设置哈希字段（支持过期时间） |
-| `hget(name, key)` | 获取单个字段 |
-| `hgetall(name)` | 获取所有字段 |
-| `hdel(name, *keys)` | 删除字段 |
-
-### 列表操作
-
-| 方法 | 说明 |
-|------|------|
-| `lpush(name, *values, ex)` | 左端推入（支持过期时间） |
-| `rpush(name, *values, ex)` | 右端推入（支持过期时间） |
-| `lpop(name)` | 左端弹出 |
-| `rpop(name)` | 右端弹出 |
-| `lrange(name, start, end)` | 获取范围 |
-
-### 集合操作
-
-| 方法 | 说明 |
-|------|------|
-| `sadd(name, *members, ex)` | 添加成员（支持过期时间） |
-| `smembers(name)` | 以无序列表获取所有成员 |
-| `srem(name, *members)` | 移除成员 |
-
-## 序列化说明 🔄
-
-模块使用带版本标记的 JSON 协议处理 Python 对象和 Redis 字符串的转换。支持
-`str`、`bool`、`int`、`float`、`None`、`list` 和字符串键的 `dict`；不支持的类型会明确抛出
-`TypeError`，避免静默转换造成类型或数据丢失。升级前未带版本标记的缓存值会按原始字符串返回。
-
-> 升级提示：新旧协议的 Redis Set 成员可能同时存在并形成逻辑重复，且新版 `srem()` 只操作新版编码。
-> 部署本变更时应使用新版 `clear()` 清理当前项目前缀缓存，或确认旧缓存均设置了 TTL 并等待其淘汰；
-> 不要调用 `FLUSHDB`，以免影响共享数据库中的其他项目。
-
-```python
-# 支持的类型自动序列化
-data = {
-    'string': 'hello',
-    'number': 42,
-    'float': 3.14,
-    'boolean': True,
-    'null': None,
-    'list': [1, 2, 3],
-    'dict': {'nested': 'value'},
-}
-
-await redis_manager.set('data', data)
-result = await redis_manager.get('data')
-# 新写入值会保持完全相同的数据结构和基础类型
-```
-
-## 最佳实践 💡
-
-### 1. 缓存键设计
-
-所有键都会自动添加项目前缀，确保多个项目共享 Redis 实例时不会冲突。
-
-#### 第一层：项目级前缀（自动）
-
-```python
-# REDIS_PREFIX = 'anda_erp'（来自配置）
-await redis.set('user:1', user_data)
-# 实际键: anda_erp:user:1
-```
-
-#### 第二层：业务模块前缀（可选，推荐）
-
-对于 ERP 这样的大型系统，建议在键名中包含**业务模块名**，形成两层前缀结构：
-
-```python
-# 推荐：在键名中包含模块名
-await redis.set('user:profile:1', user_data)           # 用户模块
-# 实际键: anda_erp:user:profile:1
-
-await redis.set('order:pending:O001', order_data)      # 订单模块
-# 实际键: anda_erp:order:pending:O001
-
-await redis.set('payment:invoice:INV001', invoice)     # 支付模块
-# 实际键: anda_erp:payment:invoice:INV001
-
-await redis.set('inventory:stock:SKU001', stock)       # 库存模块
-# 实际键: anda_erp:inventory:stock:SKU001
-```
-
-**使用常量类管理模块前缀（推荐）：**
-
-```python
-# app/cache/prefixes.py
-class RedisPrefixes:
-    """业务模块前缀常量"""
-    USER_PROFILE = "user:profile"
-    USER_SETTINGS = "user:settings"
-    ORDER_PENDING = "order:pending"
-    ORDER_COMPLETED = "order:completed"
-    PAYMENT_INVOICE = "payment:invoice"
-    INVENTORY_STOCK = "inventory:stock"
-
-
-# 使用
-from app.core.cache.prefixes import RedisPrefixes
-
-await redis.set(f'{RedisPrefixes.USER_PROFILE}:1', user_data)
-await redis.set(f'{RedisPrefixes.ORDER_PENDING}:O001', order_data)
-```
-
-**两层前缀的优势：**
-- ✅ 键名结构清晰，易于理解
-- ✅ 可按模块查询和管理缓存
-- ✅ 便于不同团队维护各自模块
-- ✅ 支持模块级的性能监控
-
-**键名设计建议：**
-
-```python
-# ✅ 推荐 - 使用模块前缀
-anda_erp:user:profile:1
-anda_erp:user:settings:1
-anda_erp:order:pending:O001
-anda_erp:post:article:100
-anda_erp:session:token:abc123
-
-# ❌ 避免 - 键名设计不清晰
-anda_erp:user1profile
-anda_erp:userdata
-anda_erp:order1pending
-```
-
-### 2. TTL 设置
-
-所有主要数据操作函数都支持过期时间（TTL）设置，只需传递 `ex` 参数：
-
-```python
-# 字符串 - 设置过期时间
-await redis_manager.set('user:1', user_data, ex=3600)
-
-# 哈希 - 设置过期时间
-await redis_manager.hset('user:profile', {'name': 'Alice', 'age': 30}, ex=3600)
-
-# 列表 - 设置过期时间
-await redis_manager.lpush('tasks', 'task1', 'task2', ex=300)
-
-# 集合 - 设置过期时间
-await redis_manager.sadd('tags', 'python', 'fastapi', ex=600)
-
-# 批量设置 - 设置过期时间
-await redis_manager.mset({
-    'key1': 'value1',
-    'key2': 'value2'
-}, ex=3600)
-```
-
-**为已存在的键设置过期时间：**
-
-```python
-# 为已存在的键设置过期时间
-await redis_manager.expire('user:1', 3600)
-
-# 获取键的剩余生存时间
-remaining = await redis_manager.ttl('user:1')
-# 返回剩余秒数
-# -1 表示键存在但没有过期时间
-# -2 表示键不存在
-```
-
-**根据数据特性设置合理的过期时间：**
-
-```python
-# 用户信息：1 小时
-await redis_manager.set('user:1', user, ex=3600)
-
-# 验证码：5 分钟
-await redis_manager.set('code:verify:user1', code, ex=300)
-
-# 热门数据：30 秒
-await redis_manager.set('trending:posts', posts, ex=30)
-
-# 永不过期（谨慎使用）
-await redis_manager.set('config:app', config)
-```
-
-### 3. 缓存预热
-
-在应用启动时预加载关键数据：
-
-```python
-# 在 startup 事件中
-async def warm_cache():
-    redis_manager = get_redis_manager()
-    
-    # 预加载常用配置
-    config = await db.get_config()
-    await redis_manager.set('app:config', config)
-    
-    # 预加载热门数据
-    trending = await db.get_trending_posts(limit=20)
-    await redis_manager.set('trending:posts', trending, ex=3600)
-```
-
-### 4. 缓存失效策略
-
-```python
-# 更新数据时主动清除缓存
-async def update_user(user_id: int, data: dict):
-    redis_manager = get_redis_manager()
-    
-    # 更新数据库
-    updated = await db.users.update(user_id, data)
-    
-    # 清除相关缓存
-    await redis_manager.delete(
-        f'user:{user_id}',
-        f'user:{user_id}:profile',
-        'users:list'  # 列表缓存也需要清除
-    )
-    
-    return updated
-```
-
-### 5. 错误处理
-
-```python
-from redis.exceptions import RedisError
-
-from app.core.cache import get_redis_manager
-from app.core.log import log
-
-
-async def safe_cache_get(key: str, default: object = None) -> object:
-    try:
-        redis_manager = get_redis_manager()
-        return await redis_manager.get(key, default)
-    except RedisError as exc:
-        # 缓存异常不应影响主业务流程
-        log.warning(f"Redis 缓存读取失败: error_type={type(exc).__name__}")
-        return default
-```
-
-## 性能提示 ⚡
-
-1. **批量操作优先** - 使用 `mset/mget` 而不是循环调用 `set/get`
-2. **管道操作** - 对于大量操作，考虑使用 Redis 管道
-3. **异步 I/O** - 始终使用 `await` 充分利用异步优势
-4. **合理 TTL** - 避免过长的 TTL 导致内存占用
-5. **监控内存** - 定期检查 Redis 内存使用情况
-
-## 故障排查 🔧
-
-### 配置错误提示
-
-模块会在连接前检查所有配置，配置错误时会立即提示：
-
-```
-❌ Redis 连接失败: Redis 主机地址或端口配置错误
-❌ Redis 连接失败: Redis 连接池大小必须大于 0，当前值: 0
-❌ Redis 连接失败: Redis 连接超时时间必须大于 0，当前值: 0
-```
-
-**前置配置检查项：**
-- ✓ 主机地址是否为空
-- ✓ 端口号是否大于 0
-- ✓ 连接池大小是否大于 0
-- ✓ 连接超时是否大于 0
-
-### 连接问题
-
-```
-日志: Redis client not connected. Call connect() first.
-原因: 未调用 init_cache() 初始化
-解决: 确保应用生命周期正确调用 init_cache()
-```
-
-### 连接拒绝
-
-```
-日志: ❌ Redis 连接失败: Connection refused
-检查:
-1. Redis 服务是否启动: redis-cli ping
-2. REDIS_HOST/REDIS_PORT 配置是否正确
-3. 防火墙是否开放 Redis 端口
-```
-
-### 序列化错误
-
-```
-日志: JSON serialization failed
-原因: 自定义对象无法序列化
-解决: 写入受支持的基础类型，或在业务层先显式转换为字符串、列表或字符串键字典
-```
-
-### 心跳检查失败（自动恢复）
-
-```
-日志: ⚠️ Redis 心跳检查失败: {error}
-原因: 连接中断或 Redis 服务故障
-处理: 模块自动重连，无需手动干预
-    - 首次失败：记录 WARNING
-    - 断开连接：wait 5 秒
-    - 开始重连：记录 INFO 日志
-    - 重连成功：✅ Redis 重连成功
-    - 重连失败：❌ Redis 重连失败
-```
-
-### 查看日志示例
-
-**连接成功时：**
-```
-[DEBUG] [Redis] 连接前配置检查 - 主机:localhost, 端口:6379
-[DEBUG] [Redis] 创建连接池 - 最大连接数:10
-[INFO]  ✅ Redis 连接成功 - 主机:localhost | 端口:6379 | 数据库:0
-[INFO]  ❤️ Redis 心跳检查已启动 (检查间隔: 30 秒)
-```
-
-**运行正常时（每 30 秒）：**
-```
-[DEBUG] ❤️ Redis 心跳检查: 正常
-```
-
-**连接故障时：**
-```
-[WARNING] ⚠️ Redis 心跳检查失败: Connection lost
-[INFO]  🔄 开始重连 Redis...
-[INFO]  🔄 尝试重新连接 Redis...
-[INFO]  ✅ Redis 重连成功
-```
-
-## 文件结构 📂
-
-```
-app/cache/
-├── __init__.py          # 模块入口
-├── redis.py             # 核心 Redis 管理器
-├── decorators.py        # 缓存装饰器
-└── README.md            # 文档（本文件）
-
-config/
-└── cache_config.py      # Redis 配置
-```
-
-## 配置详解 ⚙️
-
-### CacheSettings
-
-位置：`config/cache_config.py`
-
-| 参数 | 类型 | 默认值 | 说明 | 验证 |
-|------|------|--------|------|------|
-| `REDIS_HOST` | str | localhost | Redis 服务器地址 | 不能为空 ✓ |
-| `REDIS_PORT` | int | 6379 | Redis 端口 | 必须 > 0 ✓ |
-| `REDIS_DB` | int | 0 | 数据库编号 | 直接使用 |
-| `REDIS_PASSWORD` | str \| None | None | 认证密码 | 可选 |
-| `REDIS_MAX_CONNECTIONS` | int | 10 | 连接池最大连接数 | 必须 > 0 ✓ |
-| `REDIS_TIMEOUT` | float | 5 | 连接超时时间（秒） | 必须 > 0 ✓ |
-| `REDIS_COMMAND_TIMEOUT` | float | 5 | 命令执行超时时间（秒） | 必须 > 0 ✓ |
-| `REDIS_PREFIX` | str | template | **项目级键前缀**（手动配置）| 用于区分多项目 |
-
-**REDIS_PREFIX 说明：**
-
-```python
-# 用途：在多项目共享 Redis 实例时，区分不同项目的数据
-# 示例：
-# "anda_erp"      # anda-erp 项目
-# "shop_system"   # 电商系统
-# "blog_platform" # 博客平台
-```
-
-**键名中的前缀使用方式：**
-
-```python
-# 代码
-await redis.set('user:1', data)
-
-# Redis 中实际存储（自动添加前缀）
-anda_erp:user:1
-```
-
-**业务模块前缀（可选）：**
-
-在键名中包含业务模块名，实现两层前缀结构：
-
-```python
-# 项目前缀  + 模块名  + 业务键
-#   ↓         ↓        ↓
-anda_erp  :  user     :  profile:1
-anda_erp  :  order    :  pending:123
-anda_erp  :  payment  :  invoice:456
-
-# 在代码中
-await redis.set('user:profile:1', data)
-# Redis 中: anda_erp:user:profile:1
-```
-
-### 环境变量配置示例
+## 相关测试
 
 ```bash
-# Linux/macOS
-export REDIS_HOST=redis.example.com
-export REDIS_PORT=6379
-export REDIS_DB=0
-export REDIS_MAX_CONNECTIONS=20
-export REDIS_PREFIX=anda_erp
-
-# Windows PowerShell
-$env:REDIS_HOST = "redis.example.com"
-$env:REDIS_PORT = 6379
-$env:REDIS_DB = 0
-$env:REDIS_MAX_CONNECTIONS = 20
-$env:REDIS_PREFIX = "anda_erp"
+uv run pytest tests/test_cache_decorator.py tests/test_redis_atomic_expiry.py tests/test_redis_data_safety.py tests/test_redis_reconnect.py
 ```
 
-### 多项目场景示例
+这些测试覆盖键稳定性、`None` 缓存、严格序列化、TTL 原子性、前缀清理、并发连接和有限重连。
 
-假设有 3 个项目共享同一个 Redis 实例：
-
-```python
-# 项目 1: anda-erp
-REDIS_PREFIX = 'anda_erp'
-# Redis 键: anda_erp:user:1, anda_erp:order:123
-
-# 项目 2: shop-system
-REDIS_PREFIX = 'shop_system'
-# Redis 键: shop_system:user:1, shop_system:order:123
-
-# 项目 3: blog-platform  
-REDIS_PREFIX = 'blog_platform'
-# Redis 键: blog_platform:user:1, blog_platform:post:100
-```
-
-**关键点：** 每个项目配置不同的 `REDIS_PREFIX`，数据完全隔离 ✅
-
-## 依赖 📦
-
-```
-redis>=5.0.0
-```
-
-自动通过 `pip install redis` 或项目依赖安装。
+[返回项目 README](../../../README.md)
