@@ -1,258 +1,269 @@
-# Router / Service / Repository 示例
+# 分层功能骨架示例
 
-本文件用于新增或重塑一个完整业务功能时按需读取。示例以 `item` 资源为名，落地时按真实业务替换模型、字段、权限和错误消息。
+本文件给出一个可按需改造的 router → service → repository 示例。代码中的 `Item` 是虚构业务对象，仅用于展示层间职责和数据流，不表示当前项目已经存在相应表、路由、字段或配置。
+
+复制前先核对当前 `AGENTS.md`、相关模块 README、实现和测试；再替换领域命名、字段、权限、异常语义与数据库约束。
 
 ## 目录
 
-- [结构约定](#结构约定)
-- [1. Schema](#1-schema)
-- [2. Repository](#2-repository)
-- [3. Service](#3-service)
-- [4. Router](#4-router)
-- [5. Route Registration](#5-route-registration)
-- [6. Implementation Notes](#6-implementation-notes)
+- [建议文件](#建议文件)
+- [模型](#模型)
+- [请求与响应 Schema](#请求与响应-schema)
+- [Repository](#repository)
+- [Service](#service)
+- [Router](#router)
+- [路由注册](#路由注册)
+- [落地检查](#落地检查)
 
-## 结构约定
+## 建议文件
 
-- `app/api/item.py`：路由层，只做参数接收、依赖注入、调用 service、组装统一响应。
-- `app/services/item_service.py`：业务层，处理业务规则、权限、事务边界和跨 repository 编排。
-- `app/repositories/item_repo.py`：数据访问层，只处理 SQLAlchemy 查询与持久化。
-- `app/schemas/item_schema.py`：请求、查询、响应 schema。
-- `app/models/item.py`：SQLAlchemy ORM 模型，示例中仅引用，不在本文件展开。
+```text
+app/
+├── api/item.py
+├── models/item.py
+├── repositories/item_repo.py
+├── schemas/item_schema.py
+└── services/item_service.py
+```
 
-## 1. Schema
+这只是常见拆分方式。若仓库当前按业务包组织或存在更近的 `AGENTS.md`，应遵循当前结构。
 
-`app/schemas/item_schema.py`
+## 模型
+
+模型负责持久化映射和数据库级约束。示例中的长度、唯一性和表名都是占位设计，实际值必须来自业务需求。
 
 ```python
+# app/models/item.py
+from sqlalchemy import String, UniqueConstraint
+from sqlalchemy.orm import Mapped, mapped_column
+
+from app.models.base_model import BaseModel
+
+ITEM_NAME_UNIQUE_CONSTRAINT = "uq_items_name"
+
+
+class Item(BaseModel):
+    """示例业务对象。"""
+
+    __tablename__ = "items"
+    __table_args__ = (
+        UniqueConstraint(
+            "name",
+            name=ITEM_NAME_UNIQUE_CONSTRAINT,
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(
+        String(100),
+        nullable=False,
+    )
+
+
+__all__ = ["ITEM_NAME_UNIQUE_CONSTRAINT", "Item"]
+```
+
+新增或修改模型后，应按项目当前迁移机制补充并审核迁移，不要假设应用启动会自动完成结构变更。
+
+## 请求与响应 Schema
+
+请求 Schema 只接收允许客户端设置的字段；响应 Schema 明确公开字段，避免直接暴露未经审查的 ORM 对象。
+
+```python
+# app/schemas/item_schema.py
 from pydantic import ConfigDict, Field
 
 from app.schemas.base_schema import BaseSchema
 
 
 class ItemCreate(BaseSchema):
-    """创建商品请求体。"""
+    """创建业务对象的请求参数。"""
 
-    name: str = Field(..., min_length=1, max_length=100, description="商品名称")
-    price: int = Field(..., ge=0, description="商品价格，单位分")
-
-
-class ItemSearch(BaseSchema):
-    """商品列表查询条件。"""
-
-    name: str | None = Field(default=None, min_length=1, max_length=100, description="商品名称，模糊匹配")
+    name: str = Field(min_length=1, max_length=100)
 
 
 class ItemResponse(BaseSchema):
-    """商品响应体。"""
+    """对外公开的业务对象字段。"""
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: int = Field(description="商品ID")
-    name: str = Field(description="商品名称")
-    price: int = Field(description="商品价格，单位分")
+    id: int
+    name: str
 
 
-__all__ = ["ItemCreate", "ItemResponse", "ItemSearch"]
+__all__ = ["ItemCreate", "ItemResponse"]
 ```
 
-## 2. Repository
+## Repository
 
-`app/repositories/item_repo.py`
+Repository 只负责查询和持久化，不依赖 FastAPI 响应或 HTTP 异常，也不提交调用方事务。
 
 ```python
-from sqlalchemy import func, select
+# app/repositories/item_repo.py
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.item import Item
 from app.repositories.base_repo import BaseRepository
-from app.schemas.item_schema import ItemCreate, ItemSearch
 
 
 class ItemRepository(BaseRepository):
-    """商品数据访问。"""
+    """示例业务对象的数据访问。"""
 
-    async def get_by_id(self, session: AsyncSession, item_id: int) -> Item | None:
-        """按 ID 查询商品。"""
+    async def get_by_id(
+        self,
+        session: AsyncSession,
+        item_id: int,
+    ) -> Item | None:
+        """按主键查询业务对象。"""
         statement = select(Item).where(Item.id == item_id)
         result = await session.execute(statement)
         return result.scalar_one_or_none()
 
-    async def get_by_name(self, session: AsyncSession, name: str) -> Item | None:
-        """按名称查询商品。"""
-        statement = select(Item).where(Item.name == name)
-        result = await session.execute(statement)
-        return result.scalar_one_or_none()
-
-    async def list_items(
+    async def create(
         self,
         session: AsyncSession,
-        search: ItemSearch,
         *,
-        offset: int,
-        limit: int,
-    ) -> tuple[list[Item], int]:
-        """分页查询商品列表和总数。"""
-        filters = []
-        if search.name:
-            filters.append(Item.name.ilike(f"%{search.name}%"))
-
-        list_statement = select(Item).where(*filters).order_by(Item.id.desc()).offset(offset).limit(limit)
-        count_statement = select(func.count()).select_from(select(Item.id).where(*filters).subquery())
-
-        list_result = await session.execute(list_statement)
-        count_result = await session.execute(count_statement)
-        return list(list_result.scalars().all()), count_result.scalar_one()
-
-    async def create(self, session: AsyncSession, payload: ItemCreate) -> Item:
-        """创建商品记录，事务提交由 service 控制。"""
-        item = Item(**payload.model_dump())
+        name: str,
+    ) -> Item:
+        """写入业务对象，但不提交调用方事务。"""
+        item = Item(name=name)
         session.add(item)
         await session.flush()
-        await session.refresh(item)
         return item
 
 
+# 仅在当前仓库采用模块级无状态实例时保留。
 item_repository = ItemRepository()
 
 __all__ = ["ItemRepository", "item_repository"]
 ```
 
-## 3. Service
+如果名称需要唯一，数据库唯一约束才是并发安全的最终保障。是否预查询、如何识别约束冲突以及转换成哪种项目异常，应依据当前数据库与异常约定决定。
 
-`app/services/item_service.py`
+模块级实例不是 FastAPI 或 SQLAlchemy 的通用要求。若当前项目改用依赖注入容器、工厂或请求级实例，应删除示例实例，并沿用实际装配方式。
+
+## Service
+
+Service 解释业务结果、抛出项目异常并拥有写事务边界。示例在事务退出前构造响应，避免依赖未知的提交后对象过期策略。
 
 ```python
+# app/services/item_service.py
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.exceptions import BizException, ErrorCode, NotFoundException
-from app.repositories.item_repo import item_repository
-from app.schemas.item_schema import ItemCreate, ItemResponse, ItemSearch
+from app.exceptions import NotFoundException
+from app.repositories.item_repo import ItemRepository, item_repository
+from app.schemas.item_schema import ItemCreate, ItemResponse
 
 
 class ItemService:
-    """商品业务逻辑。"""
+    """示例业务对象的业务编排。"""
 
-    async def get_item(self, session: AsyncSession, item_id: int) -> ItemResponse:
-        """查询商品详情，不存在时抛出统一资源异常。"""
-        item = await item_repository.get_by_id(session, item_id)
-        if item is None:
-            raise NotFoundException(message=f"商品 {item_id} 不存在")
-        return ItemResponse.model_validate(item)
+    def __init__(self, repository: ItemRepository) -> None:
+        self._repository = repository
 
-    async def list_items(
+    async def get_item(
         self,
         session: AsyncSession,
-        search: ItemSearch,
-        *,
-        offset: int,
-        limit: int,
-    ) -> tuple[list[ItemResponse], int]:
-        """分页查询商品列表。"""
-        items, total = await item_repository.list_items(session, search, offset=offset, limit=limit)
-        return [ItemResponse.model_validate(item) for item in items], total
-
-    async def create_item(self, session: AsyncSession, payload: ItemCreate) -> ItemResponse:
-        """创建商品并校验名称唯一性。"""
-        async with session.begin():
-            exists = await item_repository.get_by_name(session, payload.name)
-            if exists is not None:
-                raise BizException(ErrorCode.ALREADY_EXISTS, message=f"商品名称 {payload.name} 已存在")
-
-            item = await item_repository.create(session, payload)
-
+        item_id: int,
+    ) -> ItemResponse:
+        """查询业务对象并解释不存在语义。"""
+        item = await self._repository.get_by_id(session, item_id)
+        if item is None:
+            raise NotFoundException(message=f"条目 {item_id} 不存在")
         return ItemResponse.model_validate(item)
 
+    async def create_item(
+        self,
+        session: AsyncSession,
+        payload: ItemCreate,
+    ) -> ItemResponse:
+        """在一个事务内创建业务对象。"""
+        async with session.begin():
+            item = await self._repository.create(
+                session,
+                name=payload.name,
+            )
+            response = ItemResponse.model_validate(item)
 
-item_service = ItemService()
+        return response
+
+
+# 与上面的模块级实例策略配套；实际以当前装配代码为准。
+item_service = ItemService(item_repository)
 
 __all__ = ["ItemService", "item_service"]
 ```
 
-## 4. Router
+如果一个写流程在进入 `session.begin()` 前已经通过同一会话执行了查询，需要重新设计事务入口或沿用当前已开启事务，不能机械嵌套 `begin()`。
 
-`app/api/item.py`
+## Router
+
+Router 负责 HTTP 参数、依赖注入和成功响应组装。业务判断和事务留在 Service。
 
 ```python
+# app/api/item.py
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.rate_limit import rate_limit
 from app.dependencies.db import get_db
-from app.dependencies.pagination import PageDep
-from app.schemas.item_schema import ItemCreate, ItemResponse, ItemSearch
-from app.schemas.response import PageResponseSchema, ResponseSchema
+from app.schemas.item_schema import ItemCreate
+from app.schemas.response import ResponseSchema
 from app.services.item_service import item_service
 
 DBSessionDep = Annotated[AsyncSession, Depends(get_db)]
 
-router_item = APIRouter(prefix="/items", tags=["商品管理"])
+router_item = APIRouter(prefix="/items", tags=["条目"])
 
 
-@router_item.get("/{item_id}", summary="获取商品详情")
-async def get_item_api(item_id: int, db: DBSessionDep) -> ResponseSchema:
-    """获取商品详情。"""
-    item = await item_service.get_item(db, item_id)
-    return ResponseSchema.ok(data=item.model_dump())
+@router_item.get("/{item_id}", summary="查询条目")
+async def get_item_api(
+    item_id: int,
+    session: DBSessionDep,
+) -> ResponseSchema:
+    """查询单个业务对象。"""
+    item = await item_service.get_item(session, item_id)
+    return ResponseSchema.ok(data=item.model_dump(mode="json"))
 
 
-@router_item.get("", summary="分页查询商品")
-@rate_limit("30/minute")
-async def list_items_api(
-    request: Request,
-    db: DBSessionDep,
-    pagination: PageDep,
-    search: Annotated[ItemSearch, Query()],
-) -> PageResponseSchema[ItemResponse]:
-    """分页查询商品列表。"""
-    items, total = await item_service.list_items(
-        db,
-        search,
-        offset=pagination.offset,
-        limit=pagination.limit,
-    )
-    return PageResponseSchema.ok(data=items, total=total, page=pagination.page, page_size=pagination.page_size)
-
-
-@router_item.post("", summary="创建商品")
-async def create_item_api(payload: ItemCreate, db: DBSessionDep) -> ResponseSchema:
-    """创建商品。"""
-    item = await item_service.create_item(db, payload)
-    return ResponseSchema.ok(data=item.model_dump(), message="创建成功")
+@router_item.post("", summary="创建条目")
+async def create_item_api(
+    payload: ItemCreate,
+    session: DBSessionDep,
+) -> ResponseSchema:
+    """创建业务对象。"""
+    item = await item_service.create_item(session, payload)
+    return ResponseSchema.ok(data=item.model_dump(mode="json"))
 
 
 __all__ = ["router_item"]
 ```
 
-## 5. Route Registration
+权限依赖、HTTP 状态码、幂等要求和审计字段均应按实际公共契约补充。不要因为示例省略，就默认接口不需要这些能力。
 
-`app/api/__init__.py`
+## 路由注册
 
-```python
-from fastapi import APIRouter, FastAPI
+在当前装配文件中做增量修改，保留全部既有路由：
 
-from app.api.demo import router_demo
-from app.api.item import router_item
+```diff
++from app.api.item import router_item
 
-
-def register_router(app: FastAPI) -> None:
-    router = APIRouter()
-    router.include_router(router_demo)
-    router.include_router(router_item)
-
-    app.include_router(router)
-
-
-__all__ = ["register_router"]
+ def register_router(app: FastAPI) -> None:
+     router = APIRouter()
+     # 保留已有的 include_router(...) 调用
++    router.include_router(router_item)
+     app.include_router(router)
 ```
 
-## 6. Implementation Notes
+实际插入位置以当前代码的 import 排序和注册顺序为准，不要用该片段覆盖整个函数。
 
-- 若查询条件变复杂，仍保持分页在 `PageDep`，筛选条件放 `ItemSearch`。
-- 写操作事务放在 service，repository 不执行 `commit()` / `rollback()`。
-- 更复杂的查询、事务、关联加载和原生 SQL 示例见 `database-async-sqlalchemy.md`。
-- `ItemResponse.model_validate(item)` 依赖 `ConfigDict(from_attributes=True)`。
-- 错误类型选择见 `error-handling.md`。
-- 测试和验证命令见 `testing-validation.md`。
+## 落地检查
+
+- 业务字段、权限、失败语义和兼容要求是否来自真实需求，而不是示例。
+- 数据库约束、索引、迁移和事务边界是否完整。
+- Router 是否保持轻量，Repository 是否没有提交事务或依赖 HTTP 对象。
+- 响应字段是否通过 Schema 显式筛选，序列化方式是否符合当前响应文档。
+- 是否补充了 Service 规则、Repository 查询、接口行为和并发约束的相关测试。
+- 是否同步更新受影响的根 README 或模块 README，并按 `AGENTS.md` 运行质量门禁。

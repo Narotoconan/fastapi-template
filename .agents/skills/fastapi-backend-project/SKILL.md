@@ -1,81 +1,45 @@
 ---
 name: fastapi-backend-project
-description: "Project-level FastAPI backend guidance for projects generated from this template. Use when implementing, modifying, or reviewing this repository's routers, services, repositories, Pydantic schemas, async SQLAlchemy data access, unified responses, project exceptions, logging, Redis cache, rate limiting, middleware registration, tests, Ruff, or ty checks."
+description: "Repository-local workflow guidance for nontrivial FastAPI backend changes. Use when implementing or reviewing a feature that crosses router, service, repository, schema, async database, cache, exception, middleware, or public API boundaries in this template repository."
 ---
 
 # FastAPI Backend Project
 
-## Core Workflow
+## Authority
 
-1. Read `AGENTS.md`, `README.md`, and the nearby files in the target module before editing.
-2. Run `git status --short` and protect existing user changes.
-3. Keep the request path as `router -> service -> repository`; do not place business rules or complex SQL in routers.
-4. Keep all DB and I/O paths async: `async def`, `AsyncSession`, `await session.execute(...)`, and no blocking calls inside async functions.
-5. Use project primitives: `ResponseSchema`, `PageResponseSchema`, `PageDep`, `BizException` subclasses, and `from app.core.log import log`.
-6. Validate changed Python code with `uv run ruff format ...`, `uv run ruff check ...`, `uv run ty check`, and relevant `uv run pytest ...`.
+- Follow the nearest [AGENTS.md](../../../AGENTS.md) as the policy and quality-gate authority.
+- Treat implementation and tests as the final behavior source of truth.
+- Treat the root and module README files as the current public contract.
+- Use this skill for workflow and reference selection; do not use it as a second copy of repository rules or runtime defaults.
 
-## Reference Map
+## Workflow
 
-- Read `references/layered-feature-example.md` when adding or reshaping a feature across router, service, repository, schema, and route registration.
-- Read `references/database-async-sqlalchemy.md` when writing async SQLAlchemy models, queries, transactions, eager loading, raw SQL, or repository methods.
-- Read `references/error-handling.md` when choosing exception types, error codes, auth errors, validation errors, or middleware error responses.
-- Read `references/cache-rate-limit.md` when using Redis cache, cache keys, cache decorators, or `@rate_limit(...)`.
-- Read `references/testing-validation.md` before finishing code changes, adding tests, or deciding which checks to run.
-- Read `references/anti-patterns.md` when reviewing code or correcting implementation that may violate project conventions.
+1. Inspect the affected call chain, nearby implementation, tests, configuration, and module documentation before designing the change.
+2. Identify the public contract, business invariants, transaction boundary, failure modes, compatibility requirements, and documentation impact.
+3. Reuse the repository's current abstractions after confirming their definitions; do not infer behavior from names or from this skill.
+4. Keep the change scoped, update every affected layer, and preserve unrelated worktree changes.
+5. Validate and report results according to `AGENTS.md`, including any unverified external-service or migration risk.
 
-## Layer Rules
+## Reference Routing
 
-### Router
+- Read [feature-workflow.md](references/feature-workflow.md) for a cross-layer feature, API change, cache integration, middleware change, or public contract review.
+- Read [layered-feature-example.md](references/layered-feature-example.md) when a concrete router → service → repository implementation skeleton would help; adapt the placeholder domain instead of copying it as a runtime contract.
+- Read [project-pattern-examples.md](references/project-pattern-examples.md) for project-specific pagination, unique-conflict conversion, cache consistency, or vertical-slice test examples.
+- Read [async-data-access.md](references/async-data-access.md) for SQLAlchemy queries, transactions, models, relationships, repository changes, migrations, or concurrent database work.
 
-- Define one `APIRouter` per feature file, usually `router_xxx = APIRouter(prefix="/xxx", tags=["..."])`.
-- Keep handlers thin: accept path/query/body parameters, inject dependencies, call service, and wrap success responses.
-- Use `PageDep` for pagination and `ResponseSchema.ok(...)` / `PageResponseSchema.ok(...)` for JSON APIs.
-- Return `StreamingResponse` / `FileResponse` directly for file downloads; errors still go through project exceptions.
-- If using `@rate_limit(...)`, place FastAPI route decorator above it and include a `request: Request` parameter.
-- Export routers with `__all__`, then include them in `app/api/__init__.py`.
+Load current contracts directly when relevant:
 
-### Service
+- Project overview and runtime behavior: [README.md](../../../README.md)
+- Responses and serialization: [app/schemas/README.md](../../../app/schemas/README.md)
+- Exceptions and error responses: [app/exceptions/README.md](../../../app/exceptions/README.md)
+- Cache behavior: [app/core/cache/README.md](../../../app/core/cache/README.md)
+- Middleware behavior: [app/middlewares/README.md](../../../app/middlewares/README.md)
+- Public enums: [app/enums/README.md](../../../app/enums/README.md)
 
-- Put business rules, permission decisions, orchestration, cache decisions, and transaction boundaries here.
-- Do not use FastAPI `Depends` in service functions; pass explicit objects such as `AsyncSession`, current user id, and request DTOs.
-- Raise project exceptions from `app.exceptions`; avoid `HTTPException` in service code.
-- For write flows, start `async with session.begin():` before the first DB operation that belongs to the write transaction; repositories should not commit or rollback.
-- Return response schemas or domain-shaped data that routers can directly wrap.
+## Project Adapters
 
-### Repository
-
-- Put SQLAlchemy statements and persistence details here.
-- Follow the current `BaseRepository` singleton style and pass `AsyncSession` into repository methods.
-- Use SQLAlchemy 2.0 statements such as `select(...)`, `update(...)`, `delete(...)`; do not use sync `Session` or `session.query(...)`.
-- Repository methods should be async when they touch DB, should not know HTTP concepts, and should normally return ORM objects, primitives, `None`, or tuples for the service to interpret.
-- Avoid N+1 queries; use joins, `selectinload`, or explicit batch queries when relationships are needed.
-
-## Error And Logging Rules
-
-- Use `NotFoundException` for missing resources, `ParamsException` for semantic parameter errors, `AuthException` / `ForbiddenException` for authz, and `BizException(ErrorCode.ALREADY_EXISTS, ...)` or other `ErrorCode` values for business failures.
-- Let global handlers in `app.exceptions.handlers` build error responses; do not manually return failed `ResponseSchema` from business code.
-- Log through `from app.core.log import log` only; allowed methods are `log.info`, `log.warning`, `log.error`, and `log.debug`.
-- Never log passwords, tokens, secrets, ID numbers, phone numbers, or raw credential-bearing headers.
-
-## Schema Rules
-
-- Request/response models live in `app/schemas/` and inherit `BaseSchema`.
-- Use Pydantic `Field(...)` for validation, descriptions, and OpenAPI clarity.
-- Put shared enum values in `app/enums/`; do not duplicate enum definitions in schemas or services.
-- For ORM-to-response conversion with `model_validate(orm_obj)`, add `model_config = ConfigDict(from_attributes=True)` to the response schema.
-- Prefer meaningful model names such as `OrderCreate`, `OrderSearch`, `OrderResponse`; avoid generic names like `Data` or `Result`.
-
-## Project Conventions
-
-- Use Python 3.12 typing: `list[str]`, `dict[str, Any]`, `X | None`, and `collections.abc.Callable`.
-- Sort imports as standard library, third-party, then `app` / `config`.
-- Add Chinese docstrings to new or meaningfully changed functions containing business logic.
-- Keep configuration in `config/`; do not modify `.env`, `.env.*`, real secrets, or production credentials.
-- Preserve `main.py` initialization order: settings, logging, FastAPI app, exception handlers, rate limiter, middleware, routers.
-
-## Best Practice Anchors
-
-- Use FastAPI `APIRouter` to structure larger applications into multiple files.
-- Use FastAPI dependencies for request-bound resources such as DB sessions and pagination, then pass resolved objects to services explicitly.
-- Centralize exception handlers so route/service code raises domain errors instead of hand-building failed JSON.
-- Treat each `AsyncSession` as request/task-scoped and do not share it concurrently across asyncio tasks.
+- Confirm and prefer existing primitives such as `ResponseSchema`, `PageResponseSchema`, `PageDep`, project exceptions, `BaseRepository`, and the unified logging entry point.
+- Treat reference code as an adaptation template, not proof that a module, route, field, default, or configuration is present in the current application.
+- Discover current defaults, enabled components, routes, error codes, configuration requirements, and test layout from the repository instead of recording them in this skill.
+- When code and documentation disagree, verify behavior from implementation and tests, then reconcile documentation within the requested scope.
+- When the template evolves or is used to generate another project, follow that project's local instructions and current code rather than assuming this repository's present state.

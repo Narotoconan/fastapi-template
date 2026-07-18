@@ -8,7 +8,7 @@
        - 出参序列化：model_dump() / JSON 响应自动提取 .value（int/str），无需手动转换
     3. FastAPI 会根据枚举类型自动生成 OpenAPI 文档的 enum 约束，无需额外描述
 """
-from datetime import date, datetime
+from datetime import datetime
 
 from pydantic import Field
 
