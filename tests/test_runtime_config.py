@@ -7,9 +7,11 @@ from pydantic import ValidationError
 from app.core import events as events_module
 from app.core.cache.redis import _create_connection_pool
 from app.core.database.postgresql import build_database_url
+from app.core.rate_limit.rate_limiter import _create_rate_limit_pool
 from config.cache_config import CacheSettings
 from config.database_config import DatabaseSettings
 from config.middleware_config import JWTSettings
+from config.rate_limit_config import RateLimitSettings
 from config.settings import get_settings
 
 
@@ -90,6 +92,35 @@ def test_redis_pool_preserves_password_special_characters() -> None:
     assert pool.connection_kwargs["password"] == "p@ss:/ word"
     assert pool.connection_kwargs["host"] == "redis"
     assert pool.connection_kwargs["db"] == 2
+
+
+def test_rate_limit_pool_uses_structured_connection_and_timeout_settings() -> None:
+    """限流专用连接池应保留密码并应用独立的容量和超时配置。"""
+    cache_settings = CacheSettings(
+        REDIS_HOST="redis",
+        REDIS_PORT=6380,
+        REDIS_DB=3,
+        REDIS_PASSWORD="p@ss:/ word",
+    )
+    rate_limit_settings = RateLimitSettings(
+        RATE_LIMIT_REDIS_MAX_CONNECTIONS=4,
+        RATE_LIMIT_REDIS_POOL_TIMEOUT=0.3,
+        RATE_LIMIT_REDIS_CONNECT_TIMEOUT=0.8,
+        RATE_LIMIT_REDIS_COMMAND_TIMEOUT=0.4,
+    )
+
+    pool = _create_rate_limit_pool(cache_settings, rate_limit_settings)
+
+    assert pool.max_connections == 4
+    assert pool.timeout == 0.3
+    assert pool.connection_kwargs["host"] == "redis"
+    assert pool.connection_kwargs["port"] == 6380
+    assert pool.connection_kwargs["db"] == 3
+    assert pool.connection_kwargs["password"] == "p@ss:/ word"
+    assert pool.connection_kwargs["socket_connect_timeout"] == 0.8
+    assert pool.connection_kwargs["socket_timeout"] == 0.4
+
+    asyncio.run(pool.aclose())
 
 
 def test_lifespan_logs_version_after_startup_and_always_runs_shutdown(monkeypatch: pytest.MonkeyPatch) -> None:

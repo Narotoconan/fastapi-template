@@ -26,8 +26,8 @@ app/core/cache/
 应用生命周期已经完成集成：
 
 ```text
-启动：PostgreSQL 检查 -> Redis connect + PING -> 启动 30 秒心跳
-关闭：PostgreSQL -> Redis -> Loguru 队列
+启动：PostgreSQL 检查 -> Redis connect + PING + 30 秒心跳 ->（启用时）限流 Redis PING
+关闭：（启用时）限流 Redis -> Redis -> PostgreSQL -> Loguru 队列
 ```
 
 连接行为：
@@ -58,7 +58,8 @@ app/core/cache/
 | `REDIS_COMMAND_TIMEOUT` | `float` | `5` | 命令读写超时，必须大于 0 |
 | `REDIS_PREFIX` | `str` | `template` | 项目键命名空间，不得为空白 |
 
-连接池上限按应用进程计算；多进程部署时需要乘以进程数并结合 Redis 连接上限评估。
+连接池上限按应用进程计算；多进程部署时需要乘以进程数并结合 Redis 连接上限评估。启用接口限流后，
+还会建立一个独立的限流连接池（默认上限 5），总连接数需同时计入两者。
 
 ## 快速使用
 

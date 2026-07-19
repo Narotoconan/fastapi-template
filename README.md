@@ -14,7 +14,7 @@
 | 统一 JSON 响应与异常处理 | 启用 | 成功与失败均使用 `code / message / result` |
 | CORS / GZip | 启用 | CORS 包裹完整应用栈，兜底 500 响应也可携带跨域头 |
 | JWT Bearer 校验 | 已实现，默认关闭 | 仅负责校验 Token，不包含登录、注册和 Token 签发业务 |
-| SlowAPI 接口限流 | 已注册，默认关闭 | 仅作用于显式添加 `@rate_limit(...)` 的接口 |
+| 异步 Redis 接口限流 | 已注册，默认关闭 | 基于 `limits.aio` 与 `redis.asyncio`，仅作用于显式添加 `@rate_limit(...)` 的接口 |
 | Loguru 日志 | 启用 | 输出到控制台和 `logs/app.log` |
 | 分页、枚举、模型与 Repository 基类 | 已提供 | 用于扩展业务模块 |
 | Scheduler | 仅目录骨架 | 模板未内置实际定时任务 |
@@ -77,7 +77,7 @@ uv 显式加载 `.env.local`：
 uv run --env-file .env.local uvicorn main:app --reload
 ```
 
-应用会先检查 PostgreSQL，再连接 Redis；任一依赖不可用时启动失败，这是模板的故障快速暴露策略。
+应用会依次检查 PostgreSQL、Redis 缓存和（启用时）限流 Redis；任一依赖不可用时启动失败，这是模板的故障快速暴露策略。
 
 ### 3. 验证服务
 
@@ -142,7 +142,7 @@ fastapi-template/
 │   │   ├── database/           # 异步 PostgreSQL 引擎与会话
 │   │   ├── events/             # lifespan 启停与资源清理
 │   │   ├── log/                # Loguru 统一入口
-│   │   └── rate_limit/         # SlowAPI 限流
+│   │   └── rate_limit/         # 异步 Redis 限流
 │   ├── dependencies/           # 数据库、分页等请求依赖
 │   ├── enums/                  # 公共与业务枚举
 │   ├── exceptions/             # 错误码、项目异常和全局处理器
@@ -173,7 +173,7 @@ fastapi-template/
 | Redis | `REDIS_HOST`、`REDIS_PREFIX` | 默认 `localhost` / `template` |
 | JWT | `JWT_SECRET_KEY` | 必填，至少 32 个字符；中间件默认仍关闭 |
 | CORS / GZip | `CORS_*`、`GZIP_MINIMUM_SIZE` | CORS 列表必须使用 JSON 字符串 |
-| 限流 | `RATE_LIMIT_ENABLED`、`RATE_LIMIT_DEFAULT` | 默认 `false` / `100/minute` |
+| 限流 | `RATE_LIMIT_ENABLED`、`RATE_LIMIT_DEFAULT`、`RATE_LIMIT_FAIL_OPEN`、`RATE_LIMIT_REDIS_*` | 默认关闭；独立连接池默认上限为 5 |
 | 日志 | `LOG_LEVEL`、`LOG_RETENTION`、`LOG_ROTATION_TIME` | 默认 INFO、保留 14 天、每日轮转 |
 
 注意：
@@ -224,8 +224,8 @@ await redis_manager.hset(
 
 ### 接口限流
 
-限流默认关闭，开启后仅检查显式声明的接口。SlowAPI 要求路由装饰器在限流装饰器上方，
-且端点显式接收名为 `request` 的 `Request`：
+限流默认关闭，开启后仅检查显式声明的接口。端点必须显式接收名为 `request` 的 `Request`，
+并保持路由装饰器在 `@rate_limit(...)` 上方：
 
 ```python
 from fastapi import APIRouter, Request
@@ -243,8 +243,10 @@ async def list_orders(request: Request) -> ResponseSchema:
     return ResponseSchema.ok(data=[])
 ```
 
-限流按客户端 IP 和端点计数，使用独立 Redis 连接。存储故障时当前实现会记录错误并放行请求；
-高安全场景应结合网关限流或按业务要求调整 fail-open 策略。
+限流使用 `limits.aio` 的固定窗口策略和 `redis.asyncio`，按客户端 IP 与端点计数。它复用项目
+`REDIS_PREFIX` 进行键隔离，但拥有独立的小连接池，避免占用缓存连接；多个 worker 连接同一 Redis
+时共享额度。启用后应用启动会先 `PING` 限流 Redis，连接失败即终止启动；运行期 Redis 故障则由
+`RATE_LIMIT_FAIL_OPEN` 决定是否放行（默认 `true`）。高安全场景应设为 `false` 并结合网关限流。
 
 ### 数据库与时间
 
@@ -338,6 +340,13 @@ uv run ty check
 uv run pytest
 ```
 
+真实 Redis 限流冒烟测试默认跳过，只有显式设置 `TEST_REDIS_URL` 时才会运行。该地址必须指向隔离的
+测试 Redis，禁止使用生产实例；测试只会删除本次运行生成的唯一限流键：
+
+```bash
+uv run pytest tests/test_rate_limit_redis_integration.py
+```
+
 项目使用 [Ruff](https://docs.astral.sh/ruff/) 进行格式化与静态检查，使用
 [ty](https://docs.astral.sh/ty/) 持续观察类型诊断，并通过 pytest 覆盖配置、安全、生命周期、
 缓存、限流、数据库会话和响应契约。
@@ -355,7 +364,7 @@ from app.core.log import log
 - 使用密钥管理系统注入数据库密码、Redis 密码和 JWT 密钥。
 - 将 CORS 来源收紧为明确域名。
 - 明确是否启用 JWT，并实现真实的登录、用户加载与权限策略。
-- 根据业务风险评估限流 fail-open 行为。
+- 根据业务风险评估 `RATE_LIMIT_FAIL_OPEN`；多 worker 部署时按 worker 数评估缓存与限流两个 Redis 连接池的总连接数。
 - 删除或保护 `/demo/*`，并建立数据库迁移流程。
 - 根据进程数、数据库上限和实际负载重新评估连接池参数。
 

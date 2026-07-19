@@ -3,6 +3,7 @@ from collections.abc import Awaitable, Callable
 from app.core.cache import close_cache
 from app.core.database import db_disconnect
 from app.core.log import complete_log, log
+from app.core.rate_limit import close_rate_limiter
 
 
 async def _run_cleanup(resource_name: str, cleanup: Callable[[], Awaitable[None]]) -> None:
@@ -15,8 +16,9 @@ async def _run_cleanup(resource_name: str, cleanup: Callable[[], Awaitable[None]
 
 async def shutdown() -> None:
     """依次释放应用资源，单项失败不阻断其余清理流程。"""
-    await _run_cleanup("数据库", db_disconnect)
+    await _run_cleanup("接口限流", close_rate_limiter)
     await _run_cleanup("Redis", close_cache)
+    await _run_cleanup("数据库", db_disconnect)
     await _run_cleanup("日志队列", complete_log)
 
 

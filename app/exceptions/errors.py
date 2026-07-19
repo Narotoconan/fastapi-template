@@ -132,6 +132,18 @@ class ServiceUnavailableException(BizException):
         super().__init__(ErrorCode.INTERNAL_ERROR, message=message, http_status=503, result=result)
 
 
+class RateLimitException(BizException):
+    """接口请求超过声明额度。"""
+
+    def __init__(self, *, limit: str) -> None:
+        self.limit = limit
+        super().__init__(
+            ErrorCode.FAIL,
+            message="请求过于频繁，请稍后重试",
+            http_status=429,
+        )
+
+
 __all__ = [
     "AuthException",
     "BizException",
@@ -139,6 +151,7 @@ __all__ = [
     "ForbiddenException",
     "NotFoundException",
     "ParamsException",
+    "RateLimitException",
     "ServiceUnavailableException",
     "get_error_message",
 ]
