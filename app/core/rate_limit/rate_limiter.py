@@ -146,7 +146,7 @@ class AsyncRateLimiter:
         self._pool: BlockingConnectionPool | None = None
         self._client: Redis | None = None
         self._storage: RedisStorage | None = None
-        self._strategy: AsyncRateLimitStrategy | None = None
+        self._strategy: AsyncRateLimitStrategy | FixedWindowRateLimiter | None = None
         self._lifecycle_lock = asyncio.Lock()
 
     async def start(self) -> None:
@@ -182,7 +182,7 @@ class AsyncRateLimiter:
             self._storage = storage
             self._strategy = strategy
             log.info(
-                "异步接口限流器初始化完成 | "
+                "✅ 异步接口限流器初始化完成 | "
                 f"strategy=fixed-window fail_open={self.fail_open} "
                 f"max_connections={settings.rate_limit.RATE_LIMIT_REDIS_MAX_CONNECTIONS}"
             )
@@ -201,7 +201,7 @@ class AsyncRateLimiter:
                 return
 
             await _close_rate_limit_resources(client, pool)
-            log.info("异步接口限流器已关闭")
+            log.info("✅ 异步接口限流器已关闭")
 
     async def check(
         self,
@@ -263,8 +263,9 @@ def rate_limit(limit_value: str | None = None) -> EndpointDecorator:
         if not inspect.iscoroutinefunction(endpoint):
             raise TypeError("@rate_limit 仅支持 async def 接口")
 
-        endpoint_name = cast(str, getattr(endpoint, "__name__", endpoint.__class__.__name__))
-        endpoint_module = cast(str, getattr(endpoint, "__module__", endpoint.__class__.__module__))
+        endpoint_type = type(endpoint)
+        endpoint_name = cast(str, getattr(endpoint, "__name__", endpoint_type.__name__))
+        endpoint_module = cast(str, getattr(endpoint, "__module__", endpoint_type.__module__))
         endpoint_signature = inspect.signature(endpoint)
         request_index: int | None = None
         for index, parameter in enumerate(endpoint_signature.parameters.values()):
@@ -324,7 +325,7 @@ def register_rate_limiter(app: FastAPI) -> None:
 
     settings = get_settings().rate_limit
     log.info(
-        "接口速率限制已注册 | "
+        "🧩 接口速率限制已注册 | "
         f"enabled={settings.RATE_LIMIT_ENABLED} default={settings.RATE_LIMIT_DEFAULT} "
         f"fail_open={settings.RATE_LIMIT_FAIL_OPEN}"
     )
