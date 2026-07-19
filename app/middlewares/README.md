@@ -11,11 +11,14 @@
 | GZip | 启用 | `register_gzip_middleware()` | 压缩符合条件的响应 |
 | JWT | 关闭 | `register_jwt_middleware()` | 校验 Bearer Token 并写入 `request.state` |
 
-主程序的装配顺序是：
+主程序的注册顺序是：
 
 ```text
-全局异常处理器 -> 限流器 -> 中间件 -> 路由
+全局异常处理器 -> 限流异常处理器与应用状态 -> 中间件 -> 路由
 ```
+
+接口限流由路由函数上的 `@rate_limit(...)` 异步装饰器执行，不是 ASGI 中间件，因此不出现在下面的
+中间件请求链中。
 
 ## 执行顺序
 

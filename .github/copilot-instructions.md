@@ -5,7 +5,7 @@
 ## 项目上下文
 * 语言与框架：Python 3.12、FastAPI。
 * 包管理器：使用 `uv`，命令默认通过 `uv run ...` 执行。
-* Web 接口与数据库访问默认使用异步模式。
+* Web、数据库、缓存、限流及其他外部网络 I/O 默认使用异步模式。
 * ORM：SQLAlchemy 默认使用异步方式，例如 `AsyncSession`、`async with`、`await session.execute(...)`。
 * 项目配置位于 `config/`。
 * 应用主体位于 `app/`。
@@ -39,10 +39,11 @@
 
 ## 异步开发规范
 * FastAPI 接口默认使用 `async def`。
-* service、repository 中涉及数据库或 I/O 的函数默认使用异步定义。
+* service、repository 与 `app/core/` 基础设施中涉及 I/O 的函数默认使用异步定义。
 * SQLAlchemy 默认使用异步会话，不要在异步调用链中混用同步 `Session`。
 * 数据库操作必须正确使用 `await`。
-* 避免在异步函数中调用阻塞操作，例如同步 HTTP 请求、`time.sleep()`、大文件同步读写。
+* Redis 缓存、接口限流和 HTTP 客户端默认使用异步驱动或异步策略，禁止在异步请求链中直接调用同步客户端。
+* 避免在异步函数中调用阻塞操作，例如同步 HTTP/Redis 请求、`time.sleep()`、大文件同步读写。
 * 如必须调用阻塞逻辑，应说明原因，并按项目现有方式封装或隔离。
 
 ## 日志与字符串输出

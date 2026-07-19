@@ -1,16 +1,20 @@
 """接口速率限制模块。"""
 
 from .rate_limiter import (
-    build_rate_limit_storage_uri,
+    AsyncRateLimiter,
+    close_rate_limiter,
     create_rate_limiter,
+    init_rate_limiter,
     limiter,
     rate_limit,
     register_rate_limiter,
 )
 
 __all__ = [
-    "build_rate_limit_storage_uri",
+    "AsyncRateLimiter",
+    "close_rate_limiter",
     "create_rate_limiter",
+    "init_rate_limiter",
     "limiter",
     "rate_limit",
     "register_rate_limiter",

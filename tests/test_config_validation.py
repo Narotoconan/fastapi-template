@@ -97,6 +97,32 @@ def test_rate_limit_expression_is_validated_only_when_enabled() -> None:
         RateLimitSettings(RATE_LIMIT_ENABLED=True, RATE_LIMIT_DEFAULT="0/minute")
 
 
+@pytest.mark.parametrize(
+    "field_name",
+    [
+        "RATE_LIMIT_REDIS_MAX_CONNECTIONS",
+        "RATE_LIMIT_REDIS_POOL_TIMEOUT",
+        "RATE_LIMIT_REDIS_CONNECT_TIMEOUT",
+        "RATE_LIMIT_REDIS_COMMAND_TIMEOUT",
+    ],
+)
+def test_rate_limit_redis_settings_reject_non_positive_values(field_name: str) -> None:
+    """限流专用 Redis 连接池参数必须为正数。"""
+    with pytest.raises(ValidationError):
+        RateLimitSettings.model_validate({field_name: 0})
+
+
+def test_rate_limit_redis_settings_keep_safe_defaults() -> None:
+    """异步限流连接池与故障策略应保持小型项目的保守默认值。"""
+    settings = RateLimitSettings()
+
+    assert settings.RATE_LIMIT_FAIL_OPEN is True
+    assert settings.RATE_LIMIT_REDIS_MAX_CONNECTIONS == 5
+    assert settings.RATE_LIMIT_REDIS_POOL_TIMEOUT == 0.2
+    assert settings.RATE_LIMIT_REDIS_CONNECT_TIMEOUT == 1.0
+    assert settings.RATE_LIMIT_REDIS_COMMAND_TIMEOUT == 0.5
+
+
 @pytest.mark.parametrize("invalid_level", [-1, -10])
 def test_logger_settings_reject_negative_level(invalid_level: int) -> None:
     """日志级别不能低于 Loguru 支持的最小数值。"""

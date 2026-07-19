@@ -5,6 +5,7 @@ from app.exceptions.errors import (
     ForbiddenException,
     NotFoundException,
     ParamsException,
+    RateLimitException,
     ServiceUnavailableException,
     get_error_message,
 )
@@ -17,6 +18,7 @@ __all__ = [
     "ForbiddenException",
     "NotFoundException",
     "ParamsException",
+    "RateLimitException",
     "ServiceUnavailableException",
     "build_error_response",
     "get_error_message",

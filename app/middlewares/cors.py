@@ -52,7 +52,7 @@ def register_cors_middleware(app: FastAPI) -> None:
     mutable_app.build_middleware_stack = MethodType(build_outer_cors_stack, app)
     mutable_app._outer_cors_registered = True
     log.info(
-        f"CORS 最外层中间件已注册 | allow_origins={cors.CORS_ALLOW_ORIGINS} "
+        f"🧩 CORS 最外层中间件已注册 | allow_origins={cors.CORS_ALLOW_ORIGINS} "
         f"allow_credentials={cors.CORS_ALLOW_CREDENTIALS}"
     )
 
